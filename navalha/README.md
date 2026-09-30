@@ -1,13 +1,12 @@
 # Navalha
 
-Os APKs são gerados pelo GitHub Actions, não à mão.
+O workflow que gera os APKs está em `.github/workflows/navalha-apk.yml`.
 
-Workflow: Actions → Navalha APK → Run workflow.
+Ele ainda não roda: falta enviar o projeto Android para este repositório. A conexão atual do GitHub não deixa gravar esse pacote (a API de conteúdo responde 403).
 
-Quando terminar, baixe na release:
+Quando o projeto estiver aqui, em Actions → Navalha APK → Run workflow. O arquivo para baixar sai na release:
+
 https://github.com/Mouretz/app-barber-java/releases
 
-- Navalha-cliente.apk — app de quem marca
-- Navalha-barbeiro.apk — app da casa (agenda, caixa, clientes)
-
-São dois apps. Podem ficar instalados juntos. O Android avisa que não veio da Play Store.
+- Navalha-cliente.apk — quem marca
+- Navalha-barbeiro.apk — a casa
