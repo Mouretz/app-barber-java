@@ -877,7 +877,7 @@ components:
       type: apiKey
       in: header
       name: X-Client-Code
-      description: Código gerado pelo app (UUID v4) e guardado no aparelho. O servidor nunca devolve.
+      description: Código gerado pelo app (UUID v4) e guardado no aparelho. O servidor nunca devolve. Ausente, fora do formato, desconhecido ou liberado dá o mesmo 401.
 
   parameters:
     BarbershopId:
@@ -905,7 +905,10 @@ components:
       name: X-Client-Code
       in: header
       required: true
-      description: Código do aparelho, gerado pelo app. Código liberado pelo gerente devolve 401.
+      description: |
+        Código do aparelho, gerado pelo app (UUID). Ausente, fora do formato UUID, liberado
+        pelo gerente ou desconhecido onde precisa existir: todos dão o mesmo 401
+        `UNAUTHORIZED`, nunca 400 ou 422, pra não revelar se o código existe.
       schema: { type: string, format: uuid }
     Month:
       name: month
