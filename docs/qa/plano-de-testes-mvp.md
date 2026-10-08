@@ -61,7 +61,7 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
   - **10 dígitos é fixo:** `(11) 8765-4321` é outro número e outro cliente. O servidor **não** acrescenta o 9. (CT-17-16)
   - Inválidos: menos de 10 dígitos nacionais, 12 ou 13 dígitos que não começam com 55, letras e país diferente de 55. (CT-17-12)
 - **Cliente único por telefone, com uma ficha por barbearia.** Cada barbearia só vê a própria ficha e os próprios agendamentos daquele cliente. (CT-17-08 a CT-17-10)
-- **Código do cliente:** o servidor **nunca** devolve o código. Ele nasce no aparelho (o app gera) e vai no primeiro agendamento, e o servidor prende esse código àquele telefone. Outro aparelho com o mesmo telefone é recusado com a mensagem exata **"Esse telefone já está em outro aparelho. Fale com a barbearia."** Só a Casa, logada, busca cliente por telefone; o cliente anônimo não busca. Vale também no mock. (CT-01-01, CT-04-08, CT-04-14 a CT-04-19)
+- **Código do cliente:** o servidor **nunca** devolve o código. Ele nasce no aparelho (o app gera) e vai no primeiro agendamento, e o servidor prende esse código àquele telefone. Outro aparelho com o mesmo telefone é recusado com a mensagem exata **"Esse telefone já está em outro aparelho. Fale com a barbearia."** Só a Casa, logada, busca cliente por telefone; o cliente anônimo não busca. **Um telefone por aparelho:** depois do 1º agendamento o app trava o campo de telefone, e o servidor recusa o código com um telefone diferente. **Troca de celular:** só o gerente libera, na ficha do cliente no app Casa, no botão "Liberar aparelho" (rota só do gerente: 403 pro profissional que não é gerente e pro gerente de outra barbearia). O código antigo para de valer na hora. Os horários futuros continuam marcados (são do cliente, não do aparelho). O próximo aparelho que agendar com esse telefone fica preso a ele, passa a ver esses horários, e o limite de 2 continua contando esses horários. Vale também no mock. (CT-01-01, CT-04-08, CT-04-14 a CT-04-21, CT-17-19 a CT-17-25)
 - **Limite de 2 horários futuros:** vale só pro que é marcado pelo app e soma todas as barbearias. (CT-01-19 a CT-01-22, CT-01-27, CT-01-28, CT-00-42)
 - **Papel por barbearia:** a mesma pessoa pode ser gerente em uma e não ter acesso, ou ter outro papel, em outra. (CT-00-38 a CT-00-40)
 
@@ -243,7 +243,9 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-04-16 | T1 ainda sem aparelho. | **Concorrência real:** D1 (K1) e D2 (K2) fazem o 1º agendamento com T1 ao mesmo tempo. Repetir 20 vezes. | Só um código fica preso a T1. O outro aparelho recebe a mensagem do CT-04-15, e o horário dele não é gravado. | INT |
 | CT-04-17 | K1 preso a T1, com agendamentos na A. | Varredura: chamar todas as rotas (agendar, Meus horários, cancelar, ficha do cliente na Casa, agenda, caixa) e procurar o valor de K1 nas respostas e nos logs do servidor. | K1 não aparece em nenhuma resposta nem em log. | API |
 | CT-04-18 | — | Buscar cliente por telefone (`GET /clients?q=11987654321`) sem token e só com `X-Client-Code`. Depois com o token do G-A. | Sem token e com código de cliente: 401, nenhum dado. Com G-A logado: acha T1 (só a ficha da A). O cliente anônimo não tem rota que diga se um telefone existe. | API |
-| CT-04-19 | T1 cadastrado só pela Casa (balcão com telefone), sem aparelho preso. | D1 (K1) agenda pelo app com T1. | Aceito. K1 passa a ficar preso a T1 (leitura da regra: o código nasce no 1º agendamento pelo app). Um 2º aparelho depois disso cai no CT-04-15. | API |
+| CT-04-19 | T1 cadastrado só pela Casa (balcão com telefone), sem aparelho preso. | D1 (K1) agenda pelo app com T1. | Aceito. K1 passa a ficar preso a T1: o telefone ainda não tinha aparelho, e o próximo aparelho que agenda com ele fica preso (mesma regra da troca de celular, CT-17-20). Um 2º aparelho depois disso cai no CT-04-15. | API |
+| CT-04-20 | K1 (D1) preso a T1, com 1 horário futuro. | Com K1, agendar informando T2. Depois, com K1, agendar informando T1 escrito de outro jeito (`(11) 98765-4321`). | T2: **recusado** com erro próprio (telefone diferente do aparelho). Nada gravado: T2 não vira cliente nem ganha ficha, e K1 continua preso só a T1. T1 com outra máscara: aceito (é o mesmo número). | API |
+| CT-04-21 | App Cliente, no mock e com servidor. | Abrir Agendar antes do 1º agendamento, fazer o 1º agendamento com T1, abrir Agendar de novo, fechar o app à força e abrir de novo. No mock, mandar um agendamento com K1 e T2 direto pelo repositório. | Antes do 1º agendamento, o campo de telefone é editável. Depois, ele aparece preenchido com T1 e **travado**, também depois de reabrir o app. O mock recusa K1 com T2 do mesmo jeito que o servidor. | FLU |
 
 ### CT-14 · (14) Introdução
 
@@ -356,6 +358,13 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-17-16 | Cliente T1 (`+5511987654321`) existe. | Normalizar `(11) 8765-4321` (10 dígitos). Cadastrar esse número na A e agendar com ele pelo app. | Vira `+551187654321` (fixo, **sem** o 9 acrescentado). É outro cliente: não junta com T1, e o limite de 2 de um não conta pro outro. | UNI + API |
 | CT-17-17 | — | Teste parametrizado do 55 com e sem `+`: `55987654321`, `(55) 98765-4321`, `+55 55 98765-4321`, `5532345678`, `551134567890`, `5511987654321` e `+5511987654321`. | `55987654321`, `(55) 98765-4321` e `+55 55 98765-4321` viram `+5555987654321` (o mesmo cliente). `5532345678` vira `+555532345678`. `551134567890` vira `+551134567890`. Os dois últimos viram `+5511987654321`. | UNI |
 | CT-17-18 | G-A logado. Aparelho com K1. | Mandar T1 com máscara (`(11) 98765-4321`, `11 98765 4321`, `11.98765.4321`, `+55 (11) 98765-4321`) em todas as entradas: agendar pelo app, marcar pela Casa, balcão, cadastrar, editar a ficha e buscar. | Todas aceitas, **nunca 422 por formato**. Todas ligam ao mesmo cliente, e toda resposta traz `+5511987654321`. | API |
+| CT-17-19 | K1 (D1) preso a T1. T1 tem 1 horário futuro pelo app na A. G-A logado. | Na ficha de T1 na A, G-A toca em "Liberar aparelho". Logo depois, com K1: listar Meus horários, cancelar o horário e agendar outro. | Liberação aceita. **K1 para de valer na hora:** as 3 chamadas dão 401, sem nenhum dado. O horário futuro continua `agendado` (mesmo id, horário e profissional) e continua na agenda da Casa. | API + INT |
+| CT-17-20 | Depois do CT-17-19 (T1 sem aparelho, com 1 futuro). | D2 (K2) agenda com T1. Listar Meus horários com K2. Depois, com K2, tentar um 3º horário futuro. Por fim, D3 (K3) agenda com T1. | O agendamento de D2 é aceito, e K2 fica preso a T1. Meus horários de K2 mostra o horário antigo e o novo. O 3º dá `BOOKING_LIMIT_REACHED`, porque o horário antigo conta no limite. D3 é recusado com "Esse telefone já está em outro aparelho. Fale com a barbearia." | API |
+| CT-17-21 | K1 preso a T1, que tem ficha na A. | Chamar a rota de liberar aparelho da ficha de T1 na A com P1 (profissional da A que não é gerente) e com G-B (gerente da B, sem vínculo com a A). Depois com G-A. | P1 e G-B: **403**, e K1 continua valendo. G-A: aceito. A rota entra na varredura de papel do CT-00-24. | API |
+| CT-17-22 | App Casa, mock e servidor. | Abrir a ficha de um cliente logado como gerente e como profissional que não é gerente. | O botão "Liberar aparelho" aparece só pro gerente. Ao tocar, a liberação é feita e a tela mostra que deu certo. O profissional não vê o botão. | FLU |
+| CT-17-23 | K1 preso a T1. | **Concorrência real:** G-A libera o aparelho de T1 e D1 agenda com K1 ao mesmo tempo. Repetir 20 vezes. | No fim, K1 sempre está inválido. Nenhum agendamento é gravado com K1 depois da liberação. Se o agendamento de D1 entrou antes, ele continua `agendado` e aparece pro próximo aparelho (CT-17-20). | INT |
+| CT-17-24 | T1 tem ficha na A e na B, com 1 futuro pelo app em cada uma (K1). | G-A libera o aparelho de T1 na A. Com K1, listar Meus horários. D2 agenda com T1 na B. | Depende da [pergunta de liberar em uma barbearia ou em todas](#perguntas-em-aberto). | API |
+| CT-17-25 | T1 tem 2 futuros pelo app (K1). G-A libera o aparelho. | D2 (K2) agenda um 3º horário com T1. | Depende da [pergunta do limite na troca de celular](#perguntas-em-aberto). | API |
 
 ### CT-10 · (10) Preços, serviços e profissionais
 
@@ -546,6 +555,7 @@ Rodar antes de mandar o APK pro mouretz. Celular Android real, **modo avião lig
 - [ ] Telefone com 9 dígitos ou com letras: recusa com mensagem clara.
 - [ ] Telefone com máscara (`(11) 98765-4321`) é aceito.
 - [ ] Em outro celular, agendar com o mesmo telefone do seed: aparece "Esse telefone já está em outro aparelho. Fale com a barbearia."
+- [ ] Depois do 1º agendamento, o campo de telefone fica travado.
 - [ ] Cancelar um horário com mais de 2h: some dos futuros e o horário volta a ficar livre.
 - [ ] Horário com menos de 2h: sem botão de cancelar.
 - [ ] Fechar à força e abrir: os dados continuam.
@@ -564,6 +574,7 @@ Rodar antes de mandar o APK pro mouretz. Celular Android real, **modo avião lig
 - [ ] Desativar um profissional com horário futuro é recusado. Sem horário futuro, ele some da agenda e o caixa dele continua.
 - [ ] Expediente: fechar um dia que já tem horário. O horário continua lá, destacado.
 - [ ] Clientes: buscar e cadastrar.
+- [ ] Ficha do cliente: "Liberar aparelho" aparece pro gerente, e depois disso um outro celular consegue agendar com o telefone e vê os horários antigos.
 - [ ] Preços: mudar um preço. O horário já marcado mantém o preço antigo.
 - [ ] Caixa do mês: concluído e balcão concluído entram. Falta e cancelado não entram. Casa + profissionais = total.
 - [ ] Gerência: % decimal, -1 e 101 são recusados.
@@ -601,7 +612,7 @@ A QA só aprova quando **todos** valem:
 
 ## Perguntas em aberto
 
-Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10).
+Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10).
 
 Estas continuam vagas demais para virar um teste com resultado esperado claro. Os casos que dependem delas estão marcados acima.
 
@@ -613,8 +624,8 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 **Cliente e aparelho**
 
 4. **Intro:** aparece só na primeira abertura ou sempre? (CT-14-04)
-5. **Código preso a T1 agendando com outro telefone:** o aparelho com K1 (preso a T1) pode agendar informando T2? É recusado, ignora T2 e usa T1, ou liga T2 também? (CT-04-15)
-6. **Troca de celular:** quem reinstala o app ou troca de celular passa a receber "Esse telefone já está em outro aparelho". O que a barbearia faz para liberar o telefone, quem pode fazer (gerente ou também profissional) e o que acontece com os horários e com o código antigo? (CT-04-15, CT-04-19)
+5. **Liberar em uma barbearia ou em todas:** o cliente é único por telefone, mas tem uma ficha por barbearia, e o código fica preso ao telefone. Quando o gerente da A libera o aparelho, o código para de valer também nos horários da B? O novo aparelho passa a ver os horários da B? O gerente da B precisa saber ou concordar? (CT-17-24)
+6. **Limite de 2 na troca de celular:** se T1 já tem 2 horários futuros pelo app, o 1º agendamento do aparelho novo é recusado pelo limite. Ele fica preso a T1 mesmo assim (pra ver e cancelar os horários), ou o cliente fica sem acesso até a barbearia cancelar um? Vale a mesma dúvida pra qualquer 1º agendamento recusado (30 min, fora dos 14 dias, horário ocupado). (CT-17-25)
 
 **Casa**
 
@@ -628,18 +639,18 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 |---|---|---|
 | CT-01 | (1) Agendar | 29 |
 | CT-03 | (3) Sem encaixe duplo | 11 |
-| CT-04 | (4) Meus horários | 19 |
+| CT-04 | (4) Meus horários | 21 |
 | CT-14 | (14) Introdução | 4 |
 | CT-15 | (15) Início | 4 |
 | CT-16 | (16) Página da barbearia | 5 |
 | CT-02 | (2) Agenda por profissional | 23 |
 | CT-06 | (6) Balcão e marcação pela Casa | 16 |
 | CT-07 | (7) Expediente e folgas | 7 |
-| CT-17 | (17) Clientes | 18 |
+| CT-17 | (17) Clientes | 25 |
 | CT-10 | (10) Preços, serviços e profissionais | 9 |
 | CT-08 | (8) Caixa do mês | 15 |
 | CT-20 | (20) Gerência | 10 |
 | CT-09 | (9) Visual | 11 |
 | CT-13 | (13) Nome CortaAqui | 3 |
 | CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 45 |
-| **Total** | | **229** |
+| **Total** | | **238** |
