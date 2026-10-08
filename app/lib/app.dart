@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/config/app_config.dart';
+import 'core/storage/device_store.dart';
+import 'data/mock/mock_seed.dart';
 import 'presentation/cliente/cliente_app.dart';
 import 'presentation/placeholder_home.dart';
 import 'theme/theme.dart';
@@ -31,7 +33,10 @@ Widget rootFor(Flavor flavor, AppConfig Function() loadConfig) {
     );
   }
   return ProviderScope(
-    overrides: [appConfigProvider.overrideWithValue(config)],
+    overrides: [
+      appConfigProvider.overrideWithValue(config),
+      ...deviceSeedOverrides(config),
+    ],
     child: CortaAquiApp(config: config),
   );
 }
@@ -95,6 +100,13 @@ class ConfigErrorApp extends StatelessWidget {
     );
   }
 }
+
+/// No modo mock, o aparelho que abre o app já vem preso ao João do seed
+/// (plano da QA, seção 2, e checklist do APK). No modo api, nada.
+List<Override> deviceSeedOverrides(AppConfig config) => [
+  if (config.isMock && config.flavor == Flavor.cliente)
+    seedSessionProvider.overrideWithValue(MockSeed.joaoSession),
+];
 
 class CortaAquiApp extends StatelessWidget {
   const CortaAquiApp({super.key, required this.config});

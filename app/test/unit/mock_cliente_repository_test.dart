@@ -1,4 +1,5 @@
 import 'package:cortaaqui/core/errors/api_problem.dart';
+import 'package:cortaaqui/core/ids/uuid.dart';
 import 'package:cortaaqui/core/phone/phone.dart';
 import 'package:cortaaqui/core/time/clock.dart';
 import 'package:cortaaqui/core/time/sao_paulo.dart';
@@ -304,9 +305,15 @@ void main() {
     test('o que a Casa marca não conta no limite', () async {
       final seed = MockSeed.build(clock.now());
       repo = MockClienteRepository(clock: clock, initialState: seed);
-      // João tem 1 futuro pelo app no seed; o do Rafael é da Casa.
-      await book('2026-10-12T10:00:00', phone: '21912345678');
-      await book('2026-10-13T10:00:00', phone: '21912345678');
+      // João tem 1 futuro pelo app no seed; o do Rafael é da Casa. Cada um
+      // agenda pelo próprio aparelho do seed.
+      const rafael = MockSeed.rafaelDeviceCode;
+      await book('2026-10-12T10:00:00', phone: '21912345678', code: rafael);
+      await book('2026-10-13T10:00:00', phone: '21912345678', code: rafael);
+      await expectLater(
+        book('2026-10-14T11:00:00', phone: '21912345678', code: rafael),
+        throwsA(problem(ErrorCode.bookingLimitReached)),
+      );
       final joao = MockSeed.joaoDeviceCode;
       await book('2026-10-14T10:00:00', phone: '11987654321', code: joao);
       await expectLater(
@@ -553,6 +560,12 @@ void main() {
         'sem futuro, nada gravado, K2 não fica preso', () async {
       final before = seed.bookings.length;
       for (final phone in [
+        // Rafael: preso ao aparelho fictício do seed (CT-00-46).
+        '+5521912345678',
+        '(21) 91234-5678',
+        '55 21 91234-5678',
+        // João: preso ao aparelho que abre o APK mock (depois de "Entrar como
+        // cliente novo", o celular de teste cai aqui também).
         '+5511987654321',
         '(11) 98765-4321',
         '55 11 98765-4321',
@@ -574,7 +587,10 @@ void main() {
         onOtherDevice(),
       );
       expect(seed.bookings, hasLength(before));
-      expect(seed.codes.keys, [MockSeed.joaoDeviceCode]);
+      expect(
+        seed.codes.keys,
+        unorderedEquals([MockSeed.joaoDeviceCode, MockSeed.rafaelDeviceCode]),
+      );
       await expectLater(
         repo.listMyBookings(clientCode: kc(2)),
         throwsA(problem(ErrorCode.unauthorized)),
@@ -614,6 +630,8 @@ void main() {
 
     test('CT-04-19 telefone cadastrado só pela Casa: o 1º aparelho fica preso '
         'e vê os horários; o 2º cai no CT-04-15', () async {
+      // No seed o Rafael já tem aparelho; aqui ele fica só com a ficha da Casa.
+      seed.codes.remove(MockSeed.rafaelDeviceCode);
       final r = await book(
         '2026-10-12T10:00:00',
         phone: '(21) 91234-5678',
@@ -857,7 +875,7 @@ void main() {
       test('liberar de novo, já sem aparelho, não dá erro', () async {
         await release(MockSeed.joaoId);
         await release(MockSeed.joaoId);
-        expect(seed.codes, isEmpty);
+        expect(seed.codes, {MockSeed.rafaelDeviceCode: MockSeed.rafaelId});
       });
     });
   });
@@ -922,7 +940,7 @@ void main() {
           reason: code,
         );
       }
-      expect(seed.codes, isEmpty);
+      expect(seed.codes, {MockSeed.rafaelDeviceCode: MockSeed.rafaelId});
     });
 
     test('código liberado repetindo uma Idempotency-Key já usada: 401, não o '
@@ -954,9 +972,8 @@ void main() {
       'antes do telefone)', () async {
     final seed = MockSeed.build(clock.now());
     repo = MockClienteRepository(clock: clock, initialState: seed);
-    // Rafael fica preso a outro aparelho.
-    await book('2026-10-12T10:00:00', phone: MockSeed.rafaelPhone, code: kc(3));
-    expect(seed.codes[kc(3)], MockSeed.rafaelId);
+    // No seed o Rafael já está preso ao aparelho fictício dele.
+    expect(seed.codes[MockSeed.rafaelDeviceCode], MockSeed.rafaelId);
     final before = seed.bookings.length;
     await expectLater(
       book(
@@ -972,7 +989,7 @@ void main() {
     );
     expect(seed.bookings, hasLength(before));
     expect(seed.codes[MockSeed.joaoDeviceCode], MockSeed.joaoId);
-    expect(seed.codes[kc(3)], MockSeed.rafaelId);
+    expect(seed.codes[MockSeed.rafaelDeviceCode], MockSeed.rafaelId);
   });
 
   group('telefone no formato +55', () {
@@ -1071,9 +1088,40 @@ void main() {
         );
         final s = await repo.state;
         expect(s.clients.any((c) => c.phone == MockSeed.joaoPhone), isTrue);
-        expect(s.codes, {MockSeed.joaoDeviceCode: MockSeed.joaoId});
+        expect(s.codes, {
+          MockSeed.joaoDeviceCode: MockSeed.joaoId,
+          MockSeed.rafaelDeviceCode: MockSeed.rafaelId,
+        });
       },
     );
+
+    test('CT-00-33 clientes do seed iguais ao db/seed-dev do servidor: João no '
+        'aparelho que abre o app, Rafael no aparelho fictício', () async {
+      final s = MockSeed.build(clock.now());
+      final byId = {for (final c in s.clients) c.id: c};
+      expect(byId.keys, unorderedEquals([MockSeed.joaoId, MockSeed.rafaelId]));
+      expect(MockSeed.joaoId, '6f1c2a10-0000-4000-8000-0000000000c1');
+      expect(byId[MockSeed.joaoId]!.phone, '+5511987654321');
+      expect(byId[MockSeed.joaoId]!.fichaNames[shop], 'João Almeida');
+      expect(MockSeed.rafaelId, '6f1c2a10-0000-4000-8000-0000000000c2');
+      expect(byId[MockSeed.rafaelId]!.phone, '+5521912345678');
+      expect(byId[MockSeed.rafaelId]!.fichaNames[shop], 'Rafael Souza');
+      // O UUID de dev documentado no seed do servidor (lá fica o SHA-256).
+      expect(MockSeed.rafaelDeviceCode, '6f1c2a10-0000-4000-8000-0000000000dd');
+      // A sessão que o APK mock põe no aparelho é a do João.
+      expect(MockSeed.joaoSession.code, MockSeed.joaoDeviceCode);
+      expect(MockSeed.joaoSession.phone, MockSeed.joaoPhone);
+      expect(MockSeed.joaoSession.name, 'João Almeida');
+      expect(isUuid(MockSeed.joaoDeviceCode), isTrue);
+      expect(MockSeed.joaoDeviceCode, isNot(MockSeed.rafaelDeviceCode));
+      // Rafael: horários só da Casa, então o gerente não libera o aparelho dele.
+      expect(
+        s.bookings
+            .where((b) => b.client.id == MockSeed.rafaelId)
+            .map((b) => b.source),
+        everyElement(BookingSource.staff),
+      );
+    });
 
     test('barbearia que não existe é 404', () async {
       await expectLater(
@@ -1093,6 +1141,45 @@ void main() {
         expect((await store.load())!['version'], MockState.schemaVersion);
       },
     );
+
+    test('ids do seed: nenhum se repete (os códigos de aparelho também) e os '
+        'códigos são UUID v4', () {
+      final s = MockSeed.build(clock.now());
+      final d = MockSeed.navalha;
+      final ids = [
+        d.id,
+        ...d.services.map((x) => x.id),
+        ...d.professionals.map((x) => x.id),
+        ...s.clients.map((x) => x.id),
+        ...s.bookings.map((x) => x.id),
+        ...s.blocks.map((x) => x.id),
+        ...s.idempotency.keys,
+        ...s.codes.keys,
+      ];
+      expect(ids.toSet(), hasLength(ids.length), reason: ids.join('\n'));
+      final v4 = RegExp(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+      );
+      for (final code in [MockSeed.joaoDeviceCode, MockSeed.rafaelDeviceCode]) {
+        expect(code, matches(v4));
+      }
+      // O antigo código do aparelho era igual ao id do bloqueio.
+      expect(s.codes.keys, isNot(contains(s.blocks.single.id)));
+    });
+
+    test('estado salvo da versão 3 (João sem a sessão do aparelho) é trocado '
+        'pelo seed novo', () async {
+      final store = MemoryMockPersistence();
+      final old = MockSeed.build(clock.now()).toJson()
+        ..['version'] = 3
+        ..['codes'] = {'6f1c2a10-0000-4000-8000-0000000000e1': MockSeed.joaoId};
+      await store.save(old);
+      final r = MockClienteRepository(clock: clock, persistence: store);
+      expect((await r.state).codes, {
+        MockSeed.joaoDeviceCode: MockSeed.joaoId,
+        MockSeed.rafaelDeviceCode: MockSeed.rafaelId,
+      });
+    });
 
     test('CT-04-09 os dados continuam depois de fechar o app', () async {
       final store = MemoryMockPersistence();

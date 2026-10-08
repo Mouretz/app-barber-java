@@ -26,8 +26,9 @@ DateTime sp(String local) => DateTime.parse('$local-03:00').toUtc();
 /// "Hoje" dos testes: quarta, 07/10/2026 09:00 em Brasília.
 final kNow = sp('2026-10-07T09:00:00');
 
-/// Código do aparelho do João (cliente do seed), preso ao telefone dele. Nos
-/// testes que passam `clientCode: joaoCode`, este aparelho é o do João.
+/// Código do aparelho do João (cliente do seed), preso ao telefone dele. É o
+/// aparelho que abre o APK mock. Nos testes que passam `clientCode: joaoCode`,
+/// este aparelho é o do João.
 const joaoCode = MockSeed.joaoDeviceCode;
 
 /// Seed oficial montado em volta de [kNow]. João tem 1 futuro (amanhã 10:00
@@ -42,9 +43,15 @@ Future<void> pumpCliente(
   String? clientCode,
   String? location,
   AppConfig config = clienteConfig,
+  bool deviceSeed = false,
+  Map<String, Object> extraPrefs = const {},
 }) async {
   // Aparelho preso: código e telefone salvos juntos. Hoje só o do João.
+  // Por padrão o aparelho começa como o teste pede ([clientCode]); com
+  // [deviceSeed] entra a sessão do seed do jeito que o APK sobe
+  // (`deviceSeedOverrides`): João no modo mock, nada no modo api.
   SharedPreferences.setMockInitialValues({
+    ...extraPrefs,
     if (introSeen) DeviceStore.kIntroSeen: true,
     if (clientCode != null) ...{
       DeviceStore.kClientCode: clientCode,
@@ -61,6 +68,7 @@ Future<void> pumpCliente(
         appConfigProvider.overrideWithValue(config),
         clockProvider.overrideWithValue(clock),
         clienteRepositoryProvider.overrideWithValue(repo),
+        if (deviceSeed) ...deviceSeedOverrides(config),
       ],
       child: ClienteApp(config: config, initialLocation: location),
     ),

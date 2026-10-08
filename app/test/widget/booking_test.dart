@@ -276,30 +276,38 @@ void main() {
       tester.widget<TextField>(find.byKey(const ValueKey('confirm-phone')));
 
   testWidgets(
-    'CT-04-15 telefone do seed (preso a outro aparelho): texto exato, '
-    'nada salvo e o campo continua livre',
+    'CT-04-15 telefones do seed (Rafael e João, presos a outros aparelhos): '
+    'texto exato, nada salvo e o campo continua livre',
     (tester) async {
       final clock = FixedClock(kNow);
       final repo = seededRepo(clock);
       await pumpCliente(tester, repo: repo, clock: clock, location: agendar);
       final before = (await repo.state).bookings.length;
       await openConfirm(tester);
-      await fillAndSubmit(tester, name: 'João', phone: '(11) 98765-4321');
-
-      expect(
-        find.text(
-          'Esse telefone já está em outro aparelho. Fale com a barbearia.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('Horário marcado'), findsNothing);
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(DeviceStore.kClientCode), isNull);
-      expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
-      expect(phoneField(tester).readOnly, isFalse);
+      for (final (name, phone) in [
+        ('Rafael', '(21) 91234-5678'), // aparelho fictício do seed
+        ('João', '(11) 98765-4321'), // aparelho que abre o APK mock
+      ]) {
+        await fillAndSubmit(tester, name: name, phone: phone);
+        expect(
+          find.text(
+            'Esse telefone já está em outro aparelho. Fale com a barbearia.',
+          ),
+          findsOneWidget,
+          reason: phone,
+        );
+        expect(find.text('Horário marcado'), findsNothing);
+        expect(prefs.getString(DeviceStore.kClientCode), isNull);
+        expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
+        expect(phoneField(tester).readOnly, isFalse);
+      }
       final s = await repo.state;
       expect(s.bookings, hasLength(before));
-      expect(s.codes.keys, [MockSeed.joaoDeviceCode]);
+      expect(
+        s.codes.keys,
+        unorderedEquals([MockSeed.joaoDeviceCode, MockSeed.rafaelDeviceCode]),
+      );
 
       // Com outro número, o mesmo aparelho agenda e aí fica preso.
       await fillAndSubmit(tester, name: 'Ana', phone: '(31) 99876-5432');
@@ -348,11 +356,9 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(DeviceStore.kClientCode), isNull);
       expect(phoneField(tester).readOnly, isFalse);
-      expect(
-        (await repo.state).codes,
-        isEmpty,
-        reason: 'nenhum aparelho preso',
-      );
+      expect((await repo.state).codes, {
+        MockSeed.rafaelDeviceCode: MockSeed.rafaelId,
+      }, reason: 'nenhum aparelho novo preso, e o João sem aparelho');
     },
   );
 
@@ -382,7 +388,11 @@ void main() {
     expect(prefs.getString(DeviceStore.kClientCode), isNull);
     expect(
       (await repo.state).codes.keys,
-      unorderedEquals([MockSeed.joaoDeviceCode, kOutraPessoa]),
+      unorderedEquals([
+        MockSeed.joaoDeviceCode,
+        MockSeed.rafaelDeviceCode,
+        kOutraPessoa,
+      ]),
     );
   });
 

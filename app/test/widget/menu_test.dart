@@ -40,16 +40,18 @@ void main() {
   });
 
   testWidgets(
-    'modo mock: "Entrar como cliente novo" apaga o aparelho, volta ao '
-    'Início e o telefone do João dá PHONE_ON_OTHER_DEVICE',
+    'CT-00-46 modo mock: "Entrar como cliente novo" apaga o aparelho do João, '
+    'volta ao Início, e os telefones do Rafael e do João dão '
+    'PHONE_ON_OTHER_DEVICE',
     (tester) async {
       final clock = FixedClock(kNow);
       final repo = seededRepo(clock);
+      // Como o APK mock sobe: o aparelho já vem preso ao João.
       await pumpCliente(
         tester,
         repo: repo,
         clock: clock,
-        clientCode: joaoCode,
+        deviceSeed: true,
         location: '/menu',
       );
       expect(
@@ -61,8 +63,11 @@ void main() {
       expect(find.text('Entrar como cliente novo?'), findsOneWidget);
       await tapKey(tester, 'new-client-confirm');
 
-      // Volta ao Início (a introdução é da instalação e já foi vista).
+      // Volta ao Início (a introdução é da instalação e já foi vista), sem o
+      // João nem o horário dele.
       expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
+      expect(find.byKey(const ValueKey('home-next-booking')), findsNothing);
+      expect(find.text('Você ainda não tem horários'), findsOneWidget);
       expect(find.text('Pular'), findsNothing);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(DeviceStore.kClientCode), isNull);
@@ -72,7 +77,9 @@ void main() {
       // O "servidor" do mock não mudou: o João continua preso ao código dele.
       expect((await repo.state).codes[joaoCode], MockSeed.joaoId);
 
-      // Agendar: telefone livre e vazio; o do João é recusado.
+      // Agendar: telefone livre e vazio; o do Rafael (aparelho fictício do
+      // seed) e o do João (código apagado, mas ainda preso no "servidor") são
+      // recusados.
       await tester.tap(find.widgetWithText(FilledButton, 'Agendar'));
       await tester.pumpAndSettle();
       await tapKey(tester, 'service-${MockSeed.corteId}');
@@ -85,22 +92,27 @@ void main() {
       );
       expect(phone.readOnly, isFalse);
       expect(phone.controller!.text, isEmpty);
-      await tester.enterText(
-        find.byKey(const ValueKey('confirm-name')),
-        'Teste',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('confirm-phone')),
-        '(11) 98765-4321',
-      );
-      await tapKey(tester, 'confirm-submit');
-      expect(
-        find.text(
-          'Esse telefone já está em outro aparelho. Fale com a barbearia.',
-        ),
-        findsOneWidget,
-      );
-      expect(prefs.getString(DeviceStore.kClientCode), isNull);
+      final before = (await repo.state).bookings.length;
+      for (final number in ['(21) 91234-5678', '(11) 98765-4321']) {
+        await tester.enterText(
+          find.byKey(const ValueKey('confirm-name')),
+          'Teste',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('confirm-phone')),
+          number,
+        );
+        await tapKey(tester, 'confirm-submit');
+        expect(
+          find.text(
+            'Esse telefone já está em outro aparelho. Fale com a barbearia.',
+          ),
+          findsOneWidget,
+          reason: number,
+        );
+        expect(prefs.getString(DeviceStore.kClientCode), isNull);
+      }
+      expect((await repo.state).bookings, hasLength(before));
     },
   );
 

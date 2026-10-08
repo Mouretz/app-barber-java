@@ -44,11 +44,33 @@ class DeviceState {
   bool get hasSession => clientCode != null && boundPhone != null;
 }
 
+/// Sessão que o aparelho já traz na primeira abertura, como se o cliente
+/// tivesse agendado por ele antes. Só o modo mock tem (o João do seed, plano da
+/// QA, seção 2); no modo api o provider fica `null` e nada muda.
+class SeedSession {
+  const SeedSession({
+    required this.code,
+    required this.phone,
+    required this.name,
+  });
+
+  final String code;
+  final String phone;
+  final String name;
+}
+
+/// `null` por padrão. `runCortaAqui` sobrescreve só no modo mock.
+final seedSessionProvider = Provider<SeedSession?>((ref) => null);
+
 class DeviceStore extends Notifier<DeviceState> {
   static const kIntroSeen = 'cortaaqui.cliente.intro_seen';
   static const kClientCode = 'cortaaqui.cliente.client_code';
   static const kBoundPhone = 'cortaaqui.cliente.bound_phone';
   static const kClientName = 'cortaaqui.cliente.client_name';
+
+  /// A sessão do seed (modo mock) já foi posta neste aparelho. Fica gravado
+  /// para "Entrar como cliente novo" não ser desfeito na próxima abertura.
+  static const kSeedSessionApplied = 'cortaaqui.cliente.seed_session_applied';
 
   @override
   DeviceState build() {
@@ -59,6 +81,7 @@ class DeviceStore extends Notifier<DeviceState> {
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await _applySeedSession(prefs);
       final code = prefs.getString(kClientCode);
       final phone = prefs.getString(kBoundPhone);
       final complete = code != null && phone != null;
@@ -72,6 +95,20 @@ class DeviceStore extends Notifier<DeviceState> {
     } catch (_) {
       state = const DeviceState(hydrated: true);
     }
+  }
+
+  /// Primeira abertura no modo mock: o aparelho já vem preso ao cliente do
+  /// seed. Só uma vez por instalação; um aparelho que já tem código fica como
+  /// está.
+  Future<void> _applySeedSession(SharedPreferences prefs) async {
+    final seed = ref.read(seedSessionProvider);
+    if (seed == null || (prefs.getBool(kSeedSessionApplied) ?? false)) return;
+    if (prefs.getString(kClientCode) == null) {
+      await prefs.setString(kClientCode, seed.code);
+      await prefs.setString(kBoundPhone, seed.phone);
+      await prefs.setString(kClientName, seed.name);
+    }
+    await prefs.setBool(kSeedSessionApplied, true);
   }
 
   Future<void> markIntroSeen() async {
@@ -142,7 +179,9 @@ class DeviceStore extends Notifier<DeviceState> {
 
   /// "Entrar como cliente novo" (só no modo mock): esquece código, telefone e
   /// nome, como um aparelho limpo. A introdução continua vista (ela é da
-  /// instalação, não do cliente).
+  /// instalação, não do cliente), e a sessão do seed não volta na próxima
+  /// abertura. O código apagado continua preso ao João no "servidor" do mock,
+  /// como no servidor de verdade: só a liberação pelo gerente solta.
   Future<void> forgetClient() async {
     state = DeviceState(hydrated: state.hydrated, introSeen: state.introSeen);
     await _removeClient();

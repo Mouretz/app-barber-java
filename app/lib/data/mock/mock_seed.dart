@@ -1,14 +1,22 @@
+import '../../core/storage/device_store.dart';
 import '../../core/time/sao_paulo.dart';
 import '../../domain/scheduling.dart';
 import '../models/barbershop.dart';
 import '../models/booking.dart';
 import 'mock_state.dart';
 
-/// Seed oficial do modo mock (plano da QA, seção 5 e CT-00-33): Barbearia
+/// Seed oficial do modo mock (plano da QA, seção 2, e CT-00-33): Barbearia
 /// Navalha, 2 profissionais, os serviços Corte 30, Barba 30 e Corte + Barba 60,
-/// e 1 cliente (mais um segundo cliente só para ocupar a agenda).
+/// e 2 clientes:
+/// - João, preso ao aparelho que abre o app no modo mock: o código dele
+///   ([joaoDeviceCode]) já vem salvo na primeira abertura ([joaoSession]), e o
+///   Início mostra o próximo horário dele.
+/// - Rafael, preso a um aparelho fictício ([rafaelDeviceCode]). É com o
+///   telefone dele que se testa o `PHONE_ON_OTHER_DEVICE` (CT-00-46).
 ///
-/// Os ids são fixos para o seed do servidor poder usar os mesmos.
+/// Os ids são fixos e o seed do servidor (`db/seed-dev`) usa os mesmos. Lá o
+/// João começa sem aparelho e o primeiro aparelho que agenda com o telefone dele
+/// fica preso: no mock, esse aparelho é o que abre o app.
 abstract final class MockSeed {
   static const shopId = '6f1c2a10-0000-4000-8000-000000000001';
 
@@ -22,13 +30,30 @@ abstract final class MockSeed {
   static const joaoId = '6f1c2a10-0000-4000-8000-0000000000c1';
   static const joaoPhone = '+5511987654321';
 
-  /// Código do aparelho do João, já preso ao telefone dele. Nenhum celular de
-  /// verdade tem esse código: num celular com o APK mock, agendar com o telefone
-  /// do João cai em "Esse telefone já está em outro aparelho" (checklist da QA,
-  /// seção 8). O Rafael foi marcado pela Casa e não tem aparelho (CT-04-19).
-  static const joaoDeviceCode = '6f1c2a10-0000-4000-8000-0000000000e1';
+  /// Código do aparelho que abre o app no modo mock, preso ao João. Só existe
+  /// no mock (no modo api o aparelho começa sem código). Depois de "Entrar como
+  /// cliente novo" ele some do aparelho, mas continua preso ao João no
+  /// "servidor" do mock: o telefone do João passa a dar
+  /// `PHONE_ON_OTHER_DEVICE`, como daria no servidor.
+  static const joaoDeviceCode = '6f1c2a10-0000-4000-8000-0000000000de';
+
+  /// O que o aparelho já traz salvo na primeira abertura do APK mock.
+  static const joaoSession = SeedSession(
+    code: joaoDeviceCode,
+    phone: joaoPhone,
+    name: 'João Almeida',
+  );
+
   static const rafaelId = '6f1c2a10-0000-4000-8000-0000000000c2';
   static const rafaelPhone = '+5521912345678';
+
+  /// Aparelho fictício do Rafael, o mesmo UUID de dev do seed do servidor
+  /// (lá fica o SHA-256 dele). Nenhum celular tem esse código, então agendar
+  /// com o telefone do Rafael dá "Esse telefone já está em outro aparelho.
+  /// Fale com a barbearia." Os horários dele foram marcados pela Casa
+  /// (CT-04-19), por isso o gerente não consegue liberar o aparelho dele
+  /// (`DEVICE_RELEASE_NOT_ALLOWED`).
+  static const rafaelDeviceCode = '6f1c2a10-0000-4000-8000-0000000000dd';
 
   static const corte = Service(
     id: corteId,
@@ -140,7 +165,7 @@ abstract final class MockSeed {
           fichaNames: {shopId: 'Rafael Souza'},
         ),
       ],
-      codes: {joaoDeviceCode: joaoId},
+      codes: {joaoDeviceCode: joaoId, rafaelDeviceCode: rafaelId},
       bookings: [
         // João: 1 futuro pelo app e 2 no histórico.
         booking(
