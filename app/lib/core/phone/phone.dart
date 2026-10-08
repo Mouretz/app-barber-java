@@ -1,8 +1,9 @@
 /// Normalização do telefone numa função só (plano da QA, seção 6, item 9).
 ///
-/// Formato guardado: só dígitos, `55` + DDD + número, com 10 ou 11 dígitos
-/// depois do 55 (ex.: `5511987654321`).
+/// Formato guardado e devolvido pela API (decisão do PO): `+55` + DDD + número,
+/// com 10 ou 11 dígitos depois do 55 (ex.: `+5511987654321`).
 ///
+/// Na entrada vale qualquer jeito de escrever, com máscara e com ou sem o 55:
 /// - Com `+` na frente, o começo é sempre o DDI e tem que ser 55.
 /// - Sem `+`: 10 ou 11 dígitos são número nacional; 12 ou 13 dígitos começando
 ///   com 55 são DDI + número nacional. (Proposta da QA para a pergunta 6.)
@@ -31,14 +32,14 @@ String? normalizePhone(String raw) {
 
   if (national.length != 10 && national.length != 11) return null;
   if (national.startsWith('0')) return null; // DDD não começa com 0
-  return '55$national';
+  return '+55$national';
 }
 
-/// Número nacional (sem o 55), que é o formato do `ClientInfo.phone` no contrato.
+/// Número nacional (DDD + número, sem o +55).
 String nationalDigits(String normalized) =>
-    normalized.startsWith('55') ? normalized.substring(2) : normalized;
+    normalized.startsWith('+55') ? normalized.substring(3) : normalized;
 
-/// `(11) 98765-4321` a partir do número normalizado.
+/// `(11) 98765-4321` a partir do número normalizado (`+5511987654321`).
 String formatPhone(String normalized) {
   final n = nationalDigits(normalized);
   if (n.length < 10) return normalized;

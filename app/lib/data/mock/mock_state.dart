@@ -138,7 +138,9 @@ class MockState {
   final List<MockBlock> blocks;
   final Map<String, MockIdempotencyEntry> idempotency;
 
-  static const int schemaVersion = 1;
+  /// Versão 2: telefone no formato `+55...`. Estado salvo de outra versão é
+  /// descartado e o seed é montado de novo.
+  static const int schemaVersion = 2;
 
   Map<String, dynamic> toJson() => {
     'version': schemaVersion,

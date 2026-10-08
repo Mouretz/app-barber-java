@@ -232,7 +232,7 @@ void main() {
     expect(created, hasLength(1));
     expect(created.single.startAt, sp('2026-10-08T09:00:00'));
     expect(created.single.source, BookingSource.clientApp);
-    expect(s.clients.any((c) => c.phone == '5531998765432'), isTrue);
+    expect(s.clients.any((c) => c.phone == '+5531998765432'), isTrue);
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNotNull);

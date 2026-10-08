@@ -20,9 +20,9 @@ abstract final class MockSeed {
   static const helenaId = '6f1c2a10-0000-4000-8000-0000000000b2';
 
   static const joaoId = '6f1c2a10-0000-4000-8000-0000000000c1';
-  static const joaoPhone = '5511987654321';
+  static const joaoPhone = '+5511987654321';
   static const rafaelId = '6f1c2a10-0000-4000-8000-0000000000c2';
-  static const rafaelPhone = '5521912345678';
+  static const rafaelPhone = '+5521912345678';
 
   static const corte = Service(
     id: corteId,

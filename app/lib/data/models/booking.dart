@@ -70,7 +70,7 @@ class BookingClientRef extends Equatable {
   final String id;
   final String name;
 
-  /// Só a casa vê.
+  /// Só a casa vê. Sempre no formato `+5511987654321`.
   final String? phone;
 
   Map<String, dynamic> toJson() => {
@@ -219,8 +219,8 @@ class Booking extends Equatable {
   ];
 }
 
-/// `ClientInfo` do contrato. [phone] aqui é o que a pessoa digitou; a
-/// normalização acontece no repositório (mock) ou no servidor.
+/// `ClientInfo` do contrato. [phone] vai do jeito que a pessoa digitou (com
+/// máscara, com ou sem 55); quem normaliza para `+55...` é o servidor (ou o mock).
 class ClientInfo extends Equatable {
   const ClientInfo({required this.name, required this.phone, this.email});
 
