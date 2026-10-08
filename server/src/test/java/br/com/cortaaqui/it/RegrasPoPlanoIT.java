@@ -196,6 +196,46 @@ class RegrasPoPlanoIT extends DomainTest {
         assertThat(block.status()).as(block.toString()).isEqualTo(201);
     }
 
+    private static List<String> blockStarts(Res agenda) {
+        List<String> out = new ArrayList<>();
+        for (JsonNode p : agenda.body().get("professionals")) {
+            for (JsonNode b : p.get("blocks")) {
+                out.add(b.get("startAt").asText() + "/" + b.get("endAt").asText());
+            }
+        }
+        return out;
+    }
+
+    @Test
+    @DisplayName("CT-02-21 (sábado): o bloqueio sexta 23:30–00:00 aparece só na agenda de sexta; a de sábado vem sem bloqueio e os livres de sábado não mudam")
+    void ct0221SaturdayUntouched() {
+        // Expediente de P1 até 21:00 todos os dias (sábado também tem livres para comparar).
+        assertThat(putAllDays(w.tGA, w.shopA, w.p1, "08:00", "21:00").status()).isEqualTo(200);
+        assertValidation(putDay("FRI", "08:00", "00:00"), "days[0].windows[0].end");
+        String friday = "2026-10-09";
+        String saturday = "2026-10-10";
+        List<String> saturdayBefore = slots(w.shopA, w.corte, w.p1, saturday);
+        assertThat(saturdayBefore).first().isEqualTo("08:00");
+        assertThat(saturdayBefore).last().isEqualTo("20:30");
+
+        Res block = block(w.tP1, w.shopA, w.p1, friday + "T23:30", saturday + "T00:00");
+        assertThat(block.status()).as(block.toString()).isEqualTo(201);
+
+        Res fri = get("/barbershops/" + w.shopA + "/agenda?date=" + friday, w.tP1);
+        assertThat(fri.status()).isEqualTo(200);
+        assertThat(blockStarts(fri)).containsExactly("2026-10-09T23:30:00-03:00/2026-10-10T00:00:00-03:00");
+        JsonNode friWindows = fri.body().get("professionals").get(0).get("workingWindows");
+        assertThat(friWindows.get(friWindows.size() - 1).get("end").asText()).isEqualTo("21:00");
+
+        for (String token : new String[] {w.tP1, w.tGA}) {
+            Res sat = get("/barbershops/" + w.shopA + "/agenda?date=" + saturday + "&professionalId=" + w.p1, token);
+            assertThat(sat.status()).isEqualTo(200);
+            assertThat(blockStarts(sat)).isEmpty();
+            assertThat(sat.body().get("professionals").get(0).get("bookings")).isEmpty();
+        }
+        assertThat(slots(w.shopA, w.corte, w.p1, saturday)).isEqualTo(saturdayBefore);
+    }
+
     @Test
     @DisplayName("CT-07-07: profissional que mexe no expediente leva 403 antes de qualquer 422")
     void ct0707ForbiddenBeforeValidation() {
@@ -224,17 +264,21 @@ class RegrasPoPlanoIT extends DomainTest {
     // ------------------------------------------------------------------ 3: duração em múltiplos de 30
 
     @Test
-    @DisplayName("CT-10-07: criar serviço com 45, 15, 0, -30 ou 510 min dá 422 em durationMinutes")
+    @DisplayName("CT-10-07: criar serviço com 0, -30, 15, 45, 100 (e 510, 29, 31) min dá 422 em durationMinutes; nada é criado")
     void ct1007CreateRejectsNonMultipleOf30() {
-        for (int minutes : new int[] {45, 15, 0, -30, 510, 29, 31}) {
+        for (int minutes : new int[] {0, -30, 15, 45, 100, 510, 29, 31}) {
             assertValidation(createService(minutes), "durationMinutes");
         }
         assertThat(count("SELECT count(*) FROM services WHERE name LIKE 'Serviço %'")).isZero();
     }
 
     @Test
-    @DisplayName("CT-10-07: mudar a duração para 45 dá 422 e o serviço fica como estava; 90 é aceito")
+    @DisplayName("CT-10-07: mudar o Corte (ou a Barba) para 45 ou 100 dá 422 e o serviço fica como estava; 90 é aceito")
     void ct1007PatchRejectsNonMultipleOf30() {
+        for (int minutes : new int[] {45, 100}) {
+            assertValidation(patchService(w.corte, minutes), "durationMinutes");
+        }
+        assertThat(durationInDb(w.corte)).isEqualTo(30);
         assertValidation(patchService(w.barba, 45), "durationMinutes");
         assertThat(durationInDb(w.barba)).isEqualTo(30);
         assertValidation(patchService(w.barba, 5), "durationMinutes");
@@ -279,15 +323,41 @@ class RegrasPoPlanoIT extends DomainTest {
     // ------------------------------------------------------------------ 5: profissional em Clientes
 
     @Test
-    @DisplayName("CT-17-07: profissional que não é gerente busca, abre e cadastra cliente")
+    @DisplayName("CT-17-07: P1 (não gerente) busca \"joão\" (só da A), cadastra ficha na A, marca balcão na própria agenda com ela e leva 409 PHONE_IN_USE com T1, igual ao gerente")
     void ct1707ProfessionalSearchesAndCreates() {
-        Res created = createClient(w.tP1, w.shopA, "João Almeida", "(11) 98765-4321");
-        assertThat(created.status()).as(created.toString()).isEqualTo(201);
-        Res search = get("/barbershops/" + w.shopA + "/clients?q=joao", w.tP1);
+        // T1 já tem ficha na A; a B tem um "João B" que a A não pode ver.
+        UUID joaoA = createClient(w.tGA, w.shopA, "João Almeida", "(11) 98765-4321").id();
+        assertThat(createClient(w.tGB, w.shopB, "João B", "21987654321").status()).isEqualTo(201);
+
+        Res search = get("/barbershops/" + w.shopA + "/clients?q=joão", w.tP1);
         assertThat(search.status()).isEqualTo(200);
         assertThat(search.body()).hasSize(1);
-        assertThat(search.body().get(0).get("id").asText()).isEqualTo(created.id().toString());
+        assertThat(search.body().get(0).get("id").asText()).isEqualTo(joaoA.toString());
+        assertThat(search.body().toString()).doesNotContain("João B");
+
+        Res created = createClient(w.tP1, w.shopA, "Carlos Lima", "21912345678");
+        assertThat(created.status()).as(created.toString()).isEqualTo(201);
+        assertThat(count("SELECT count(*) FROM client_profiles WHERE id = '" + created.id() + "' AND barbershop_id = '"
+                + w.shopA + "'")).isEqualTo(1);
         assertThat(get("/barbershops/" + w.shopA + "/clients/" + created.id(), w.tP1).status()).isEqualTo(200);
+
+        // Balcão na própria agenda com essa ficha.
+        Res counter = send(req(HttpMethod.POST, "/barbershops/" + w.shopA + "/staff/bookings").token(w.tP1).newKey()
+                .body(map("serviceId", w.corte, "professionalId", w.p1, "startAt", sp("2026-10-07T10:00"), "source", "COUNTER",
+                        "clientId", created.id())));
+        assertThat(counter.status()).as(counter.toString()).isEqualTo(201);
+        assertThat(counter.body().get("source").asText()).isEqualTo("COUNTER");
+        assertThat(counter.body().get("client").get("id").asText()).isEqualTo(created.id().toString());
+        assertThat(counter.body().get("professional").get("id").asText()).isEqualTo(w.p1.toString());
+
+        // T1 de novo na A: 409 PHONE_IN_USE, igual ao gerente; nenhuma ficha a mais.
+        Res again = createClient(w.tP1, w.shopA, "João de Novo", "11987654321");
+        Res byManager = createClient(w.tGA, w.shopA, "João de Novo", "11987654321");
+        assertThat(again.status()).as(again.toString()).isEqualTo(409);
+        assertThat(again.code()).isEqualTo("PHONE_IN_USE");
+        assertThat(again.body()).isEqualTo(byManager.body());
+        assertThat(count("SELECT count(*) FROM client_profiles WHERE barbershop_id = '" + w.shopA + "' AND name LIKE 'João%'"))
+                .isEqualTo(1);
     }
 
     @Test
