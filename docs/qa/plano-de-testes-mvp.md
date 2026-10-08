@@ -51,8 +51,8 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
 - **Duração do serviço é definida pelo gerente.** No mock: corte 30 min, barba 30 min e combo 60 min (ocupa 2 horários seguidos). (CT-10-06, CT-00-33)
 - **Um horário só aparece nos livres se:** o serviço inteiro cabe no expediente do profissional, não bate com marcação `agendado` ou `concluido` nem com bloqueio em nenhum dos horários que ele ocupa, e começa com pelo menos 30 min de antecedência (regra do cliente pelo app). (CT-01-02 a CT-01-12)
 - **A agenda abre 14 dias contando com hoje:** de hoje até hoje + 13, com "hoje" no fuso America/Sao_Paulo. Fora disso dá 422 `DATE_OUT_OF_RANGE`, tanto pra listar horários quanto pra marcar (não é lista vazia). (CT-01-13, CT-01-14, CT-06-08, CT-00-30)
-- **O que ocupa a agenda (a trava):** marcações `agendado` e `concluido` e os bloqueios. **Falta e cancelado não ocupam:** depois de marcar falta, o horário fica livre de novo. (CT-03-06, CT-03-10, CT-03-11, CT-06-11)
-- **Bloqueio:** é um intervalo dentro do mesmo dia, com início e fim na grade de 30 min. O menor é de 30 min. Passa pela mesma trava das marcações. O profissional desbloqueia os bloqueios dele e o gerente desbloqueia qualquer um. Desbloquear não mexe em marcação nenhuma. **Meia-noite:** um bloqueio que termina às 00:00 conta como fim do mesmo dia, e nada passa pro dia seguinte. (CT-02-07, CT-02-08, CT-02-15 a CT-02-21)
+- **O que ocupa a agenda (a trava):** a trava vale **entre agendamentos** `agendado` e `concluido`: dois deles nunca se sobrepõem no mesmo profissional. Um agendamento novo também não pode cair num bloqueio (409 `SLOT_TAKEN`). **Falta e cancelado não ocupam:** depois de marcar falta, o horário fica livre de novo. (CT-03-06, CT-03-09 a CT-03-11, CT-06-11)
+- **Bloqueio:** é um intervalo dentro do mesmo dia, com início e fim na grade de 30 min. O menor é de 30 min. **Bloqueio por cima de agendamento entra (regra do PO, 23:59):** o `POST /blocks` não dá 409 por agendamento; o agendamento continua de pé e vem com `overlapsBlock = true` na agenda (sem bloqueio por cima, `false`). Bloqueio por cima de outro bloqueio é recusado (409). O profissional desbloqueia os bloqueios dele e o gerente desbloqueia qualquer um. Desbloquear não mexe em marcação nenhuma (só o `overlapsBlock` volta a `false`). **Meia-noite:** um bloqueio que termina às 00:00 conta como fim do mesmo dia, e nada passa pro dia seguinte. (CT-02-07, CT-02-08, CT-02-15 a CT-02-21, CT-02-24 a CT-02-27)
 - **Preço e duração ficam gravados na marcação.** Mudar o serviço depois não muda agendamento que já existe. (CT-10-01, CT-10-06)
 
 **Cliente e barbearias (modelo aprovado)**
@@ -167,7 +167,7 @@ Sem isto, vários casos abaixo não têm como ser automatizados. Peço que entre
 7. **Rotas marcadas por papel no OpenAPI** (ex.: extensão `x-role: gerente`), para a varredura do CT-00-24 achar sozinha toda rota só do gerente. `GET /cash` e `GET /cash/professionals/{id}` **não** levam essa marca: o profissional recebe 200 filtrado nelas (regra própria, CT-08-13 a CT-08-15).
 8. **Dinheiro em `BigDecimal` (ou centavos inteiros) com `RoundingMode.HALF_UP`.** Nunca `double`: R$ 33,33 × 50% em `double` dá 16,664999… e arredonda errado para 16,66.
 9. **Normalização do telefone numa função só**, usada no agendamento pelo app, na Casa, no balcão, no cadastro e na busca.
-10. **A trava no banco filtra pelo status:** a constraint de não sobreposição vale para `agendado`, `concluido` e bloqueio, e ignora `falta` e `cancelado`.
+10. **A trava no banco filtra pelo status:** uma constraint de não sobreposição entre agendamentos `agendado` e `concluido` (ignora `falta` e `cancelado`), outra entre bloqueios, e a checagem no banco (trigger) que recusa agendamento em cima de bloqueio. Bloqueio por cima de agendamento passa.
 11. **Origem do agendamento gravada** (app, Casa ou balcão) e **quem cancelou** (cliente ou barbearia), para o limite de 2 e o texto "cancelado pela barbearia".
 
 ---
@@ -222,9 +222,9 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-03-06 | P1 tem 10:00–10:30 `cancelado`. | Agendar 10:00–10:30 para P1. | Aceito: cancelado não ocupa (a constraint só vale para ativos). | INT + API |
 | CT-03-07 | P1 livre às 10:00. | **Concorrência real:** 2 conexões separadas tentam gravar 10:00–10:30 para P1 ao mesmo tempo (threads soltas juntas por um `CountDownLatch`), clientes diferentes. Repetir 50 vezes. | Em todas as rodadas: exatamente 1 sucesso e 1 conflito. No banco, 1 agendamento ativo. **Tem que falhar sem a constraint** (o "confere e depois grava" deixa os 2 passarem). | INT |
 | CT-03-08 | P1 livre. | Concorrência com sobreposição parcial: Combo 10:00–11:00 e Corte 10:30–11:00, ao mesmo tempo. | Só 1 vale. | INT |
-| CT-03-09 | P1 livre às 10:00. | Ao mesmo tempo: app do cliente agenda 10:00, Casa lança balcão 10:00 e Casa bloqueia 10:00. | Só 1 dos 3 vale. Balcão, app e bloqueio passam pela mesma checagem. | INT |
+| CT-03-09 | P1 livre às 10:00. | **Concorrência real:** ao mesmo tempo, o app do cliente agenda 10:00, a Casa lança balcão 10:00 e a Casa bloqueia 10:00–10:30. Repetir 20 vezes. | Em todas as rodadas: no máximo 1 agendamento (app ou balcão) entra; o outro leva 409 `SLOT_TAKEN`. O bloqueio sempre entra. Se um agendamento entrou, ele vem com `overlapsBlock = true`; se o bloqueio chegou antes, os 2 agendamentos são recusados. Nunca 500, nunca 2 agendamentos. | INT |
 | CT-03-10 | P1 tem 10:00–10:30 com status `concluido`. Em outro teste, com status `falta`. | Agendar 10:00–10:30 para P1. | Concluído ocupa: recusado. Falta não ocupa: aceito. | INT + API |
-| CT-03-11 | P1 tem 10:00–10:30 em cada um destes estados, um por teste: `agendado`, `concluido`, bloqueio, `falta`, `cancelado`. | Inserir direto no banco uma marcação 10:15–10:45 e um bloqueio 10:00–11:00 para P1. | Com `agendado`, `concluido` e bloqueio: violação da constraint. Com `falta` e `cancelado`: aceito. | INT |
+| CT-03-11 | P1 tem 10:00–10:30 em cada um destes estados, um por teste: `agendado`, `concluido`, bloqueio, `falta`, `cancelado`. | Inserir direto no banco uma marcação 10:15–10:45 e, em outro teste, um bloqueio 10:00–11:00 para P1. | Marcação: recusada com `agendado`, `concluido` e bloqueio (constraint ou trigger); aceita com `falta` e `cancelado`. Bloqueio: aceito com `agendado`, `concluido`, `falta` e `cancelado`; recusado só em cima do bloqueio. | INT |
 
 ### CT-04 · (4) Meus horários
 
@@ -300,7 +300,7 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-02-05 | Horário livre. | Tocar nele. | Aparecem as opções Marcar e Bloquear. | FLU |
 | CT-02-06 | Horário marcado. | Tocar nele. | Aparecem Concluir, Marcar falta e Cancelar. Nada disso aparece num horário cancelado, concluído ou com falta. | FLU |
 | CT-02-07 | P1 logado. Horário livre dele às 14:00. | Bloquear 14:00–14:30 (o menor bloqueio). | Aceito. Fica ocupado na agenda. Some dos livres do cliente. Tentar agendar 14:00 pelo app dá conflito. | API |
-| CT-02-08 | P1 tem 14:00–14:30 `agendado`. | Tentar bloquear 13:30–15:00 (sobreposição parcial com a marcação). | Recusado com conflito pela mesma trava das marcações. Nada criado. | API |
+| CT-02-08 | P1 tem 14:00–14:30 `agendado`. | Bloquear 13:30–15:00 (por cima da marcação). | **Aceito** (201), sem 409. A marcação continua `agendado` (mesmo id, horário e cliente), continua em Meus horários do cliente e vem com `overlapsBlock = true` na agenda. | API |
 | CT-02-09 | P1 logado. Horário dele `agendado`. | Concluir. | Status `concluido`. Preço e % de P1 gravados (CT-20-04). Entra no caixa (CT-08). | API |
 | CT-02-10 | P1 logado. Horário dele `agendado`. | Marcar falta. | Status `falta`. Final. Não entra no caixa. O horário volta a ficar livre (CT-06-11). | API |
 | CT-02-11 | Horário `agendado` às 15:00. Relógio em 3 momentos: 14:00 (1h antes), 14:59 (1 min antes) e 15:10 (já começou, ainda não concluído). | Gerente cancela. Em outro horário, P1 cancela um da própria agenda. | Aceito nos 3 momentos: a Casa cancela a qualquer hora antes de concluir. A regra das 2h não vale pra Casa. O cancelamento grava que foi a barbearia. | UNI + API |
@@ -316,6 +316,10 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-02-21 | P1 logado. Expediente de P1 na sexta até o fim do dia (00:00). Servidor em UTC. | Bloquear sexta 23:30–00:00 (fim = sábado 00:00 BRT). Pedir a agenda de sexta e a de sábado. | Aceito: termina às 00:00, que conta como fim da sexta. O bloqueio aparece só na agenda de sexta. Na de sábado não aparece nada, e o slot de sábado 00:00 (se houver expediente) continua livre. | UNI + API |
 | CT-02-22 | P1 logado (não gerente). | `GET /agenda?date=…` sem filtro, com `professionalId` = P1 e com `professionalId` = P2. | Sem filtro: 200 só com P1. Com P1: 200. Com P2: **403** e nenhum dado de P2 (não é lista vazia nem filtro silencioso). | API |
 | CT-02-23 | Horário de P1 `agendado` às 15:00. Agora = 15:10. Gerente e P1 com a agenda aberta. | Gerente conclui. Depois P1, com a tela velha, marca falta (com outra `Idempotency-Key`). | O pedido de P1 leva 409 `STATUS_CHANGED`. O status continua `concluido`. O app Casa de P1 recarrega e mostra concluído, sem as ações velhas. | API + FLU |
+| CT-02-24 | P1 tem `agendado` às 14:00 e às 17:00. Bloqueio 13:30–15:00 por cima do das 14:00. | Pedir a agenda do dia como G-A e como P1. | A das 14:00 vem com `overlapsBlock = true` e a das 17:00 com `false`, nas 2 visões. O app Casa destaca só a das 14:00. | API + FLU |
+| CT-02-25 | Depois do CT-02-24. | Desbloquear o 13:30–15:00. Pedir a agenda de novo. Em outro teste, cancelar a marcação das 14:00 com o bloqueio ainda lá. | Depois de desbloquear: a das 14:00 volta a `overlapsBlock = false`, sem mudar mais nada. Depois de cancelar a marcação: o bloqueio continua, e os livres seguem sem as 14:00 (o bloqueio ainda ocupa). | API |
+| CT-02-26 | P1 tem bloqueio 14:00–16:00. | Bloquear 15:00–17:00 (parcial), 14:30–15:30 (contido), 14:00–16:00 (igual) e 16:00–17:00 (encostado). | Os 3 primeiros recusados com 409 (bloqueio sobre bloqueio), nada criado. O encostado é aceito. | API + INT |
+| CT-02-27 | P1 tem bloqueio 14:00–15:00. | Agendar 14:00 pelo app, marcar 14:30 pela Casa e lançar balcão 14:00. | Os 3 recusados com 409 `SLOT_TAKEN`. Nada criado. | API |
 
 ### CT-06 · (6) Horário de balcão e marcação pela Casa
 
@@ -386,6 +390,7 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-17-30 | Igual ao CT-17-29, com o cliente HTTP trocado por um fake que registra as chamadas. | Depois do aviso, conferir o armazenamento do aparelho e o registro do fake. Navegar pelo Início e Meus horários, puxar pra atualizar e reabrir o app. | O código K1 foi apagado do aparelho. Nenhuma chamada sai com K1 depois do 401 (sem nova tentativa) e nenhuma chamada a `/me/bookings` sai até o próximo agendamento aceito. | FLU |
 | CT-17-31 | Depois do CT-17-29 (D1 sem código; T1 sem aparelho, com 1 futuro; T3 sem aparelho). | Rodada 1: em D1, agendar com T1. Rodada 2 (do mesmo ponto de partida): em D1, agendar com T3. | As 2 rodadas são aceitas, e o app gera um código novo (diferente de K1) que fica preso ao telefone usado. Com T1, Meus horários mostra o horário antigo e o novo. Com T3, mostra só o novo. K1 continua dando 401. | API + FLU |
 | CT-17-32 | D1 com K1 preso a T1 e 1 horário futuro. G-A libera o aparelho de T1. Fake do cliente HTTP. | Em rodadas separadas, a 1ª chamada com K1 depois da liberação é: listar Meus horários, cancelar o horário futuro e agendar um novo. Numa 4ª rodada, 2 chamadas com K1 dão 401 ao mesmo tempo (Início e Meus horários). | Em todas, o mesmo tratamento: aviso "Este aparelho foi desconectado pela barbearia." uma vez só (também na 4ª rodada), código apagado, estado de cliente novo e nenhuma tela de erro. O cancelamento e o agendamento com K1 não acontecem. | FLU |
+| CT-17-33 | G-A logado. Aparelho novo. | Mandar celular de 11 dígitos sem 9 depois do DDD (`11 8765-43210`, `+55 11 87654-3210`) em todas as entradas: agendar pelo app, marcar pela Casa, balcão, cadastrar e editar a ficha. | Recusado com 422 `VALIDATION_ERROR` no campo do telefone (o código hoje devolve `fields[0].field = "phone"`). Nada gravado. Não conflita com "nunca recusa por formato": 11 dígitos sem o 9 não formam um número válido. | UNI + API |
 
 ### CT-10 · (10) Preços, serviços e profissionais
 
@@ -483,7 +488,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-00-05 | — | Mesmo identificador, 2 pedidos **ao mesmo tempo**. | 1 agendamento só. | INT |
 | CT-00-06 | — | Mesmo cancelamento (mesma `Idempotency-Key`) 2 vezes, pelo cliente e pela Casa. | A 2ª é ignorada e devolve o mesmo resultado (200, mesmo agendamento), não `STATUS_CHANGED`. | API |
 | CT-00-07 | — | Dois POST com dados iguais e identificadores diferentes. | São 2 pedidos: o 2º leva conflito. | API |
-| CT-00-08 | — | Mesmo identificador com dados diferentes. | Depende da [pergunta do identificador](#perguntas-em-aberto). | API |
+| CT-00-08 | — | Mesma `Idempotency-Key` com dados diferentes: agendar de novo com outro horário, cancelar outro agendamento e mudar pra outro status. | 422 `IDEMPOTENCY_KEY_REUSED`. Nada criado nem mudado; o 1º pedido continua como estava. | API |
 
 **Login**
 
@@ -535,7 +540,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 
 | ID | Pré-condição | Passos | Resultado esperado | Nível |
 |---|---|---|---|---|
-| CT-00-33 | Seed do mock (`app/lib/data/mock/mock_seed.dart`) e seed do servidor. | Comparar os dois, campo a campo. | Os mesmos **ids fixos** e os mesmos valores nos dois: Barbearia Navalha, profissionais Caio e Helena, Corte R$ 40,00 (30 min), Barba R$ 30,00 (30 min), Combo R$ 60,00 (60 min) e os mesmos clientes, João e Rafael (mesmos ids e telefones), com o Rafael já preso a um aparelho fictício. Qualquer diferença de id, nome, preço ou duração reprova. | FLU + INT |
+| CT-00-33 | Seed do mock (`app/lib/data/mock/mock_seed.dart`) e seed do servidor. | Comparar os dois, campo a campo. | Os mesmos **ids fixos** e os mesmos valores nos dois: Barbearia Navalha, profissionais Caio e Helena, Corte R$ 40,00 (30 min), Barba R$ 30,00 (30 min), Combo R$ 60,00 (60 min) e os mesmos clientes, João e Rafael (mesmos ids e telefones), com o Rafael já preso a um aparelho fictício. Qualquer diferença de id, nome, preço ou duração reprova. Do lado do servidor, um teste automático aplica o `db/seed-dev` num banco limpo e confere os ids e valores. | FLU + INT |
 | CT-00-34 | Build mock. | Rodar os testes de widget com o cliente HTTP trocado por um que falha em qualquer chamada. | Nenhuma chamada de rede. Todas as telas funcionam. | FLU |
 | CT-00-35 | APK mock, celular em modo avião desde a instalação. | Seguir o checklist da seção 8. | Tudo funciona, sem tela de erro de rede. | MAN |
 | CT-00-36 | Mock. | Tentar no mock: encaixe duplo, Combo que não cabe no fim do expediente, 3º horário do mesmo telefone escrito de outro jeito, dia hoje + 14, 29 min de antecedência, cancelamento com menos de 2h, bloqueio fora da grade e balcão num slot já terminado. | O mock aplica as mesmas recusas do servidor, para o mouretz não ver um comportamento que depois muda. | FLU |
@@ -643,7 +648,7 @@ Riscos conhecidos que a regra aprovada deixa de propósito. Não são perguntas;
 
 ## Perguntas em aberto
 
-Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10); `DEVICE_PHONE_MISMATCH` antes de `PHONE_ON_OTHER_DEVICE` e 401 pro `X-Client-Code` mal formado (Back-end e contrato, 07/10); cliente novo vê "Você ainda não tem horários", sem chamar `/me/bookings` antes do 1º agendamento aceito (decisão de 07/10); aparelho desconectado depois da liberação mostra "Este aparelho foi desconectado pela barbearia." e volta ao estado de cliente novo (decisão de 07/10).
+Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10); `DEVICE_PHONE_MISMATCH` antes de `PHONE_ON_OTHER_DEVICE` e 401 pro `X-Client-Code` mal formado (Back-end e contrato, 07/10); cliente novo vê "Você ainda não tem horários", sem chamar `/me/bookings` antes do 1º agendamento aceito (decisão de 07/10); mesma `Idempotency-Key` com dados diferentes dá 422 `IDEMPOTENCY_KEY_REUSED` (contrato, 08/10); bloqueio por cima de agendamento entra e o agendamento vem com `overlapsBlock` (decisão de 07/10, 23:59); aparelho desconectado depois da liberação mostra "Este aparelho foi desconectado pela barbearia." e volta ao estado de cliente novo (decisão de 07/10).
 
 Estas continuam vagas demais para virar um teste com resultado esperado claro. Os casos que dependem delas estão marcados acima.
 
@@ -660,7 +665,6 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 
 5. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
 6. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
-7. **Mesmo identificador de pedido com dados diferentes:** devolve o primeiro resultado ou dá erro? (CT-00-08)
 
 ## 11. Resumo dos casos
 
@@ -672,14 +676,14 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 | CT-14 | (14) Introdução | 4 |
 | CT-15 | (15) Início | 9 |
 | CT-16 | (16) Página da barbearia | 5 |
-| CT-02 | (2) Agenda por profissional | 23 |
+| CT-02 | (2) Agenda por profissional | 27 |
 | CT-06 | (6) Balcão e marcação pela Casa | 16 |
 | CT-07 | (7) Expediente e folgas | 7 |
-| CT-17 | (17) Clientes | 32 |
+| CT-17 | (17) Clientes | 33 |
 | CT-10 | (10) Preços, serviços e profissionais | 9 |
 | CT-08 | (8) Caixa do mês | 15 |
 | CT-20 | (20) Gerência | 10 |
 | CT-09 | (9) Visual | 12 |
 | CT-13 | (13) Nome CortaAqui | 3 |
 | CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 48 |
-| **Total** | | **258** |
+| **Total** | | **263** |
