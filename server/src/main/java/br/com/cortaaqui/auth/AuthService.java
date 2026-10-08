@@ -59,6 +59,10 @@ public class AuthService {
                 .optional();
         String hash = user.map(UserRow::passwordHash).orElse(null);
         boolean ok = encoder.matches(password == null ? "" : password, hash != null ? hash : dummyHash) && hash != null;
+        // Profissional desativado (sem nenhum vínculo que dê acesso) leva o mesmo 401 da senha errada.
+        if (ok && !hasAccess(user.get().id())) {
+            ok = false;
+        }
         if (!ok) {
             // Mesma resposta para senha errada e e-mail inexistente (CT-00-09).
             throw new ApiException(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED, "E-mail ou senha inválidos");
@@ -90,10 +94,16 @@ public class AuthService {
                         SELECT u.id, u.name, u.email
                           FROM staff_sessions s JOIN staff_users u ON u.id = s.user_id
                          WHERE s.token_hash = :h AND s.revoked_at IS NULL AND s.expires_at > :now
-                        """)
+                           AND EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND """ + Access.USABLE_MEMBERSHIP + ")")
                 .param("h", hash).param("now", SpTime.db(clock.instant()))
                 .query((rs, i) -> new StaffPrincipal(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3), hash))
                 .optional();
+    }
+
+    /** Tem pelo menos um vínculo que dá acesso à Casa (gerente, ou profissional ativo)? */
+    public boolean hasAccess(UUID userId) {
+        return db.sql("SELECT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = :u AND " + Access.USABLE_MEMBERSHIP + ")")
+                .param("u", userId).query(Boolean.class).single();
     }
 
     @Transactional
@@ -112,8 +122,7 @@ public class AuthService {
                         SELECT m.barbershop_id, b.name, m.is_manager, m.professional_id
                           FROM memberships m JOIN barbershops b ON b.id = m.barbershop_id
                          WHERE m.user_id = :u
-                         ORDER BY b.name
-                        """)
+                           AND """ + Access.USABLE_MEMBERSHIP + " ORDER BY b.name")
                 .param("u", userId)
                 .query((rs, i) -> {
                     MembershipView m = new MembershipView(rs.getObject(1, UUID.class), rs.getString(2), rs.getBoolean(3),

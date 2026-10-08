@@ -35,6 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class ScheduleService {
 
     private static final Pattern HHMM = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
+    /** Limites do expediente no MVP (regra do PO, 08/10): 08:00 a 21:00. */
+    public static final int DAY_OPEN_MINUTE = 8 * 60;
+    public static final int DAY_CLOSE_MINUTE = 21 * 60;
     private static final List<String> WEEKDAYS = List.of("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN");
 
     private final JdbcClient db;
@@ -49,7 +52,10 @@ public class ScheduleService {
         this.clock = clock;
     }
 
-    /** Janela do expediente em minutos desde 00:00. {@code endMinute} 1440 = 00:00 do fim do dia. */
+    /**
+     * Janela do expediente em minutos desde 00:00. A API só aceita 08:00 a 21:00; a leitura ainda
+     * entende {@code endMinute} 1440 (00:00 do fim do dia) de linha antiga ou inserida direto no banco.
+     */
     public record Window(int startMinute, int endMinute) {
         public static Window of(String start, String end) {
             return new Window(toMinutes(start, false), toMinutes(end, true));
@@ -246,8 +252,13 @@ public class ScheduleService {
                     continue;
                 }
                 Window w = Window.of(r.start(), r.end());
+                boolean ok = checkEdge(c, wf + ".start", w.startMinute());
+                ok &= checkEdge(c, wf + ".end", w.endMinute());
+                if (!ok) {
+                    continue;
+                }
                 if (w.endMinute() <= w.startMinute()) {
-                    c.add(wf, "o fim tem que ser depois do início (00:00 no fim = fim do dia)");
+                    c.add(wf, "o fim tem que ser depois do início");
                     continue;
                 }
                 windows.add(w);
@@ -262,6 +273,22 @@ public class ScheduleService {
         }
         c.orThrow();
         return out;
+    }
+
+    /**
+     * Regra do PO (08/10): no MVP o expediente fica entre 08:00 e 21:00 e o início e o fim caem
+     * na grade de 30 min (08:15 é recusado). 00:00 no fim (1440) fica fora, porque passa das 21:00.
+     */
+    private static boolean checkEdge(Checks c, String field, int minute) {
+        if (minute < DAY_OPEN_MINUTE || minute > DAY_CLOSE_MINUTE) {
+            c.add(field, "o expediente vai de 08:00 a 21:00");
+            return false;
+        }
+        if (minute % SpTime.GRID_MINUTES != 0) {
+            c.add(field, "use a grade de 30 min (:00 ou :30)");
+            return false;
+        }
+        return true;
     }
 
     // ------------------------------------------------------------------ folgas

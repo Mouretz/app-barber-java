@@ -31,8 +31,11 @@ info:
     - Bloquear nunca tira o que já está marcado: o bloqueio entra mesmo em cima de uma
       marcação ativa, que continua e vem com `overlapsBlock: true` na Casa para o
       profissional resolver (atender ou cancelar).
-    - Grade de 30 em 30 minutos: início de marcação e início/fim de bloqueio caem em
-      :00 ou :30, senão 422 `VALIDATION_ERROR`.
+    - Grade de 30 em 30 minutos: início de marcação, início/fim de bloqueio e início/fim
+      do expediente caem em :00 ou :30, senão 422 `VALIDATION_ERROR`.
+    - Expediente no MVP: entre 08:00 e 21:00 (fim às 00:00 não vale mais para o
+      expediente; o bloqueio continua aceitando fim às 00:00). Duração de serviço só em
+      múltiplos de 30 (30 a 480).
     - Telefone: o servidor aceita qualquer jeito de escrever, guarda e devolve só dígitos
       no formato `+55` + DDD + número (10 ou 11 dígitos depois do 55). Jeitos diferentes
       que dão o mesmo número são o mesmo cliente.
@@ -42,7 +45,17 @@ info:
       só na própria agenda (marcar, concluir, falta, cancelar, bloquear) e vê só o que ele
       ganhou no mês. Expediente, folgas, serviços, preços, %, outros profissionais e o caixa
       da casa são só do gerente (403 `FORBIDDEN`). Pedir a agenda de outro profissional
-      dá 403.
+      dá 403. Em Clientes, o profissional busca, abre e cadastra ficha (para marcar no
+      balcão na agenda dele); editar ficha e liberar aparelho são só do gerente (403).
+    - Profissional desativado (a desativação é por barbearia): pedidos na barbearia onde
+      ele foi desativado dão 403 `FORBIDDEN`, com o mesmo corpo das outras recusas de
+      papel, mesmo com um token que já existia. Se ele ainda tem vínculo ativo em outra
+      barbearia (ou é gerente), o mesmo token continua valendo lá. Sem nenhum vínculo
+      ativo, o login com a senha certa dá o mesmo 401 da senha errada, e o token que ele
+      já tinha dá 401 no próximo pedido. O token é um só por pessoa (vale em todas as
+      barbearias dela) e não é revogado na desativação: a checagem é feita a cada pedido,
+      e reativar devolve o acesso. Histórico e caixa continuam, e o gerente reativa pelo
+      `PATCH` do profissional.
     - Clientes: um cadastro global por telefone e uma ficha por barbearia. A Casa só vê e
       busca as fichas da própria barbearia. Balcão sem telefone cria só a ficha.
     - Código do aparelho (`X-Client-Code`): o app gera o código (UUID v4) e guarda no
@@ -81,6 +94,10 @@ paths:
       tags: [Auth]
       operationId: login
       summary: Entrar com e-mail e senha (gerente ou profissional)
+      description: |
+        Senha errada, e-mail que não existe e profissional desativado sem nenhum vínculo
+        ativo (em nenhuma barbearia) recebem o mesmo 401, com o mesmo corpo. O token vale
+        para todas as barbearias da pessoa.
       requestBody:
         required: true
         content:
@@ -463,6 +480,7 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Professional' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Equipe]
       operationId: createProfessional
@@ -496,7 +514,10 @@ paths:
       description: |
         Profissional não é apagado, só desativado. Desativar com horário futuro ativo
         devolve 409 `PROFESSIONAL_HAS_FUTURE_BOOKINGS`; o gerente cancela antes. Desativado
-        some da agenda e do agendamento, mas histórico e caixa continuam.
+        some da agenda e do agendamento, mas histórico e caixa continuam. Desativado também
+        perde o acesso a esta barbearia na Casa (403 aqui; se não sobrar vínculo ativo em
+        nenhuma barbearia, login e token dão 401). Reativar é este mesmo `PATCH` com
+        `active: true`, e o acesso volta.
       security: [{ staffToken: [] }]
       requestBody:
         required: true
@@ -534,6 +555,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/WeeklyHours' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [Equipe]
@@ -541,7 +563,9 @@ paths:
       summary: Trocar o expediente semanal inteiro (só gerente)
       description: |
         Não apaga agendamentos que ficaram fora do novo expediente; eles continuam na
-        agenda e a tela mostra em cinza.
+        agenda e a tela mostra em cinza. Início e fim de cada janela ficam entre 08:00 e
+        21:00 e na grade de 30 min; senão 422 `VALIDATION_ERROR` com o campo
+        `days[i].windows[j].start` ou `days[i].windows[j].end`.
       security: [{ staffToken: [] }]
       requestBody:
         required: true
@@ -576,6 +600,7 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/TimeOff' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags: [Equipe]
@@ -628,6 +653,7 @@ paths:
       tags: [Clientes]
       operationId: searchClients
       summary: Busca por nome ou telefone (história 17)
+      description: Gerente e profissional da barbearia.
       security: [{ staffToken: [] }]
       parameters:
         - { name: q, in: query, schema: { type: string, maxLength: 80 } }
@@ -641,10 +667,12 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Client' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Clientes]
       operationId: createClient
       summary: Cadastrar cliente (história 17)
+      description: Gerente e profissional da barbearia (o profissional precisa para marcar no balcão).
       security: [{ staffToken: [] }]
       requestBody:
         required: true
@@ -658,6 +686,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Client' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409':
           description: '`PHONE_IN_USE`: já existe cliente com esse telefone nesta barbearia'
           content:
@@ -683,11 +712,13 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ClientDetail' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Clientes]
       operationId: updateClient
-      summary: Editar cliente
+      summary: Editar cliente (só gerente)
+      description: Profissional que não é gerente leva 403 (ele busca, abre e cadastra, mas não edita).
       security: [{ staffToken: [] }]
       requestBody:
         required: true
@@ -701,6 +732,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Client' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: '`PHONE_IN_USE`'
@@ -757,6 +789,7 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Service' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Serviços]
       operationId: createService
@@ -957,12 +990,12 @@ components:
 
   responses:
     Unauthorized:
-      description: '`UNAUTHORIZED`: sem token, token vencido ou código do cliente inválido'
+      description: '`UNAUTHORIZED`: sem token, token vencido ou revogado, token de quem não tem mais nenhum vínculo ativo (profissional desativado em todas as barbearias) ou código do cliente inválido'
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Forbidden:
-      description: '`FORBIDDEN`: logado, mas o papel não permite (ex.: profissional mexendo em preço)'
+      description: '`FORBIDDEN`: logado, mas o papel não permite (ex.: profissional mexendo em preço) ou é profissional desativado nesta barbearia'
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -1106,7 +1139,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string, example: Corte degradê }
-        durationMinutes: { type: integer, minimum: 5, maximum: 480, example: 40 }
+        durationMinutes: { type: integer, minimum: 30, maximum: 480, multipleOf: 30, example: 30 }
         priceCents: { type: integer, minimum: 0, example: 5000 }
         active: { type: boolean }
     ServiceRequest:
@@ -1114,14 +1147,14 @@ components:
       required: [name, durationMinutes, priceCents]
       properties:
         name: { type: string, minLength: 1, maxLength: 60 }
-        durationMinutes: { type: integer, minimum: 5, maximum: 480 }
+        durationMinutes: { type: integer, minimum: 30, maximum: 480, multipleOf: 30, description: 'Múltiplo de 30 (30, 60, 90...). 45 dá 422.' }
         priceCents: { type: integer, minimum: 0 }
     ServicePatch:
       type: object
       minProperties: 1
       properties:
         name: { type: string, minLength: 1, maxLength: 60 }
-        durationMinutes: { type: integer, minimum: 5, maximum: 480 }
+        durationMinutes: { type: integer, minimum: 30, maximum: 480, multipleOf: 30, description: 'Múltiplo de 30 (30, 60, 90...). 45 dá 422.' }
         priceCents: { type: integer, minimum: 0 }
         active: { type: boolean }
 
@@ -1158,10 +1191,10 @@ components:
     TimeRange:
       type: object
       required: [start, end]
-      description: Hora local de Brasília, `HH:mm`. `end` maior que `start`, ou `end = 00:00`, que é meia-noite (fim do dia).
+      description: Hora local de Brasília, `HH:mm`, na grade de 30 min, entre 08:00 e 21:00. `end` maior que `start`. Fim às 00:00 não vale para o expediente.
       properties:
-        start: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '09:00' }
-        end: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '12:00' }
+        start: { type: string, pattern: '^(0[89]|1\d|20):[03]0$', example: '09:00' }
+        end: { type: string, pattern: '^((0[89]|1\d|20):[03]0|21:00)$', example: '12:00' }
     Weekday:
       type: string
       enum: [MON, TUE, WED, THU, FRI, SAT, SUN]

@@ -97,9 +97,14 @@ public class ClientsService {
         return new ClientDetail(j.id(), j.name(), j.phone(), j.hasDevice(), j.email(), j.createdAt(), recent);
     }
 
+    /**
+     * Editar ficha é só do gerente (regra do PO, 08/10: "editar ficha de outro" fica com o
+     * gerente). A ficha é da barbearia, não do profissional, então não existe "ficha minha":
+     * o profissional que não é gerente busca, abre e cadastra, mas não edita (403).
+     */
     @Transactional
     public ClientProfiles.ClientJson update(UUID barbershopId, UUID profileId, ClientPatch req) {
-        access.member(barbershopId);
+        access.manager(barbershopId);
         ClientProfiles.ProfileRow p = profiles.find(barbershopId, profileId).orElseThrow(ApiException::notFound);
         Checks.start()
                 .isTrue(req.name() != null || req.phone() != null || req.email() != null, "body", "informe ao menos um campo")
