@@ -65,6 +65,7 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
 - **"Entrar como cliente novo" (só no mock):** no modo mock, o menu do app Cliente tem o botão "Entrar como cliente novo". Ele apaga o código do aparelho, o app volta pro começo e o campo de telefone fica livre. O botão não pode existir no app ligado ao servidor (`DATA_SOURCE=api`). (CT-00-46 a CT-00-48)
 - **Ordem dos erros com aparelho e telefone presos a outros:** quando um aparelho preso a um telefone (ex.: o do João) manda um telefone preso a outro aparelho (ex.: o do Rafael), vem 409 `DEVICE_PHONE_MISMATCH`, e não `PHONE_ON_OTHER_DEVICE`: o servidor confere o código do aparelho antes do telefone (confirmado pelo Back-end e escrito no contrato). (CT-04-25)
 - **Código mal formado:** `X-Client-Code` fora do formato UUID dá 401 (está no contrato). (CT-04-24)
+- **Cliente novo (sem 1º agendamento aceito):** vê "Você ainda não tem horários" e nunca uma tela de erro. O app não chama `GET /me/bookings` antes de o primeiro agendamento dar certo e mostra esse texto sozinho. O servidor continua dando 401 pra qualquer código que não conhece (regra única). (CT-15-05 a CT-15-09)
 - **Limite de 2 horários futuros:** vale só pro que é marcado pelo app e soma todas as barbearias. (CT-01-19 a CT-01-22, CT-01-27, CT-01-28, CT-00-42)
 - **Papel por barbearia:** a mesma pessoa pode ser gerente em uma e não ter acesso, ou ter outro papel, em outra. (CT-00-38 a CT-00-40)
 
@@ -269,8 +270,13 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 |---|---|---|---|---|
 | CT-15-01 | Cliente com 2 futuros (amanhã 10:00 e depois de amanhã 15:00). | Abrir o Início. | O card "próximo horário" mostra amanhã 10:00, com serviço, profissional e barbearia. | FLU + API |
 | CT-15-02 | O mais próximo foi cancelado. | Abrir o Início. | Mostra o seguinte ativo, nunca um cancelado ou já passado. | FLU |
-| CT-15-03 | Cliente sem horário (ou sem código). | Abrir o Início. | Estado vazio com chamada para agendar. Sem erro. | FLU |
+| CT-15-03 | Cliente com código já preso e sem horário futuro (cancelou o único). | Abrir o Início. | Estado vazio com chamada para agendar. Sem erro. | FLU |
 | CT-15-04 | Seed. | Abrir o Início. | A lista de barbearias mostra a Barbearia Navalha. Tocar abre a página dela (CT-16). | FLU + MAN |
+| CT-15-05 | Aparelho recém-instalado, sem 1º agendamento. Cliente HTTP trocado por um fake que registra as chamadas (e mock). | Abrir o app, passar a intro, abrir o Início e Meus horários, mandar o app pro fundo e voltar, puxar pra atualizar. | O Início mostra exatamente "Você ainda não tem horários". **Nenhuma** chamada a `/me/bookings` sai (0 no registro do fake). Nenhuma tela de erro. | FLU |
+| CT-15-06 | Aparelho novo, fake do cliente HTTP. | Fazer o 1º agendamento e ser recusado, um motivo por vez: `SLOT_TAKEN`, `TOO_SOON`, `DATE_OUT_OF_RANGE`, `OUTSIDE_WORKING_HOURS`, `BOOKING_LIMIT_REACHED`, `PHONE_ON_OTHER_DEVICE`, 500 e sem rede. Depois de cada um, voltar ao Início. | O agendamento mostra a mensagem do motivo, mas o Início continua com "Você ainda não tem horários", sem tela de erro, e o fake continua com 0 chamadas a `/me/bookings`. | FLU |
+| CT-15-07 | Aparelho novo, fake do cliente HTTP. | Fazer o 1º agendamento, que dá certo (201). Voltar ao Início. Fechar à força e abrir. | Depois do 201, o app passa a chamar `/me/bookings` com o `X-Client-Code` do aparelho, e o Início mostra o horário marcado. Depois de reabrir, continua chamando e mostrando. | FLU + API |
+| CT-15-08 | APK mock com o João preso ao aparelho. | No menu, tocar em "Entrar como cliente novo". Repetir os passos do CT-15-05 e do CT-15-06. | O mesmo comportamento do aparelho novo: "Você ainda não tem horários", nenhuma chamada a meus horários no repositório do mock e nenhuma tela de erro. | FLU + MAN |
+| CT-15-09 | Servidor. | `GET /me/bookings` (`upcoming` e `past`) com um UUID válido que o servidor não conhece. Comparar com o código fora do formato (CT-04-24) e com o código liberado (CT-17-19). | 401 `UNAUTHORIZED` nos 3, com a mesma resposta (regra única: não revela se o código existe). | API |
 
 ### CT-16 · (16) Página da barbearia
 
@@ -571,7 +577,7 @@ Rodar antes de mandar o APK pro mouretz. Celular Android real, **modo avião lig
 - [ ] Cancelar um horário com mais de 2h: some dos futuros e o horário volta a ficar livre.
 - [ ] Horário com menos de 2h: sem botão de cancelar.
 - [ ] Fechar à força e abrir: os dados continuam.
-- [ ] No menu, tocar em "Entrar como cliente novo" (só existe no mock): o app volta pro começo, o João some do Início e o campo de telefone fica livre. Agendar com o telefone do Rafael (preso a um aparelho fictício do seed): aparece "Esse telefone já está em outro aparelho. Fale com a barbearia." (409 `PHONE_ON_OTHER_DEVICE`). (CT-00-46)
+- [ ] No menu, tocar em "Entrar como cliente novo" (só existe no mock): o app volta pro começo, o João some do Início, que mostra "Você ainda não tem horários", e o campo de telefone fica livre. Agendar com o telefone do Rafael (preso a um aparelho fictício do seed): aparece "Esse telefone já está em outro aparelho. Fale com a barbearia." (409 `PHONE_ON_OTHER_DEVICE`). (CT-00-46)
 
 **App Casa como gerente**
 - [ ] Entrar com o gerente do seed.
@@ -631,7 +637,7 @@ Riscos conhecidos que a regra aprovada deixa de propósito. Não são perguntas;
 
 ## Perguntas em aberto
 
-Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10); `DEVICE_PHONE_MISMATCH` antes de `PHONE_ON_OTHER_DEVICE` e 401 pro `X-Client-Code` mal formado (Back-end e contrato, 07/10).
+Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10); `DEVICE_PHONE_MISMATCH` antes de `PHONE_ON_OTHER_DEVICE` e 401 pro `X-Client-Code` mal formado (Back-end e contrato, 07/10); cliente novo vê "Você ainda não tem horários", sem chamar `/me/bookings` antes do 1º agendamento aceito (decisão de 07/10).
 
 Estas continuam vagas demais para virar um teste com resultado esperado claro. Os casos que dependem delas estão marcados acima.
 
@@ -643,12 +649,13 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 **Cliente e aparelho**
 
 4. **Intro:** aparece só na primeira abertura ou sempre? (CT-14-04)
+5. **Código liberado:** o que o app mostra quando o código do aparelho passa a dar 401 depois de o gerente liberar o aparelho? Volta pro estado de cliente novo, com o texto "Você ainda não tem horários" e o campo de telefone livre, ou mostra outra mensagem? (CT-17-19, CT-17-20)
 
 **Casa**
 
-5. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
-6. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
-7. **Mesmo identificador de pedido com dados diferentes:** devolve o primeiro resultado ou dá erro? (CT-00-08)
+6. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
+7. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
+8. **Mesmo identificador de pedido com dados diferentes:** devolve o primeiro resultado ou dá erro? (CT-00-08)
 
 ## 11. Resumo dos casos
 
@@ -658,7 +665,7 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 | CT-03 | (3) Sem encaixe duplo | 11 |
 | CT-04 | (4) Meus horários | 25 |
 | CT-14 | (14) Introdução | 4 |
-| CT-15 | (15) Início | 4 |
+| CT-15 | (15) Início | 9 |
 | CT-16 | (16) Página da barbearia | 5 |
 | CT-02 | (2) Agenda por profissional | 23 |
 | CT-06 | (6) Balcão e marcação pela Casa | 16 |
@@ -670,4 +677,4 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 | CT-09 | (9) Visual | 11 |
 | CT-13 | (13) Nome CortaAqui | 3 |
 | CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 48 |
-| **Total** | | **248** |
+| **Total** | | **253** |
