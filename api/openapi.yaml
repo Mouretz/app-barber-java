@@ -1,1 +1,1477 @@
-SEE_DISK_/tmp/oa/push_args.json
+openapi: 3.0.3
+info:
+  title: CortaAqui API
+  version: 0.1.0
+  license:
+    name: Proprietário
+    url: https://github.com/Mouretz/app-barber-java
+  description: |
+    Contrato do MVP do CortaAqui. Este arquivo vem antes de qualquer tela ou endpoint:
+    o app (modo mock e modo API) e o servidor seguem o que está aqui. Mudou o contrato,
+    muda este arquivo no mesmo PR.
+
+    Regras gerais:
+    - Multi-barbearia: todo recurso da casa fica embaixo de `/barbershops/{barbershopId}`.
+      O servidor confere se o usuário logado tem vínculo com essa barbearia; sem vínculo
+      a resposta é 404 (não revela que a barbearia existe para quem não é dela).
+    - Horário: o servidor usa a hora de Brasília (`America/Sao_Paulo`). Datas e horas vão
+      em ISO 8601 com offset (`2026-10-08T14:30:00-03:00`). Dia sem hora vai como `date`.
+    - Dinheiro sempre em centavos, inteiro (`priceCents`). Nunca ponto flutuante.
+    - Erros seguem o formato `Problem` (RFC 7807) com um `code` estável que o app usa
+      para escolher a mensagem.
+    - Pedido repetido é ignorado: todo POST que cria agendamento exige o cabeçalho
+      `Idempotency-Key` (UUID gerado pelo app). Repetir a mesma chave devolve a mesma
+      resposta da primeira vez, sem criar outro agendamento.
+    - Status do agendamento só anda pra frente: `SCHEDULED` vira `COMPLETED`, `NO_SHOW`
+      ou `CANCELED`, e daí não volta.
+    - Sem encaixe duplo por profissional: garantido por constraint no banco. Ocupam o
+      horário só marcações `SCHEDULED` ou `COMPLETED` e os bloqueios; falta e cancelamento
+      liberam. Marcação nova em cima de marcação ou de bloqueio devolve 409 `SLOT_TAKEN`,
+      e bloqueio em cima de outro bloqueio também.
+    - Bloquear nunca tira o que já está marcado: o bloqueio entra mesmo em cima de uma
+      marcação ativa, que continua e vem com `overlapsBlock: true` na Casa para o
+      profissional resolver (atender ou cancelar).
+    - Grade de 30 em 30 minutos: início de marcação, início/fim de bloqueio e início/fim
+      do expediente caem em :00 ou :30, senão 422 `VALIDATION_ERROR`.
+    - Expediente no MVP: entre 08:00 e 21:00 (fim às 00:00 não vale mais para o
+      expediente; o bloqueio continua aceitando fim às 00:00). Duração de serviço só em
+      múltiplos de 30 (30 a 480).
+    - Telefone: o servidor aceita qualquer jeito de escrever, guarda e devolve só dígitos
+      no formato `+55` + DDD + número (10 ou 11 dígitos depois do 55). Jeitos diferentes
+      que dão o mesmo número são o mesmo cliente.
+    - O preço e a duração do serviço ficam gravados no agendamento na criação. A divisão
+      casa/profissional fica gravada quando o agendamento é concluído.
+    - Papéis: o gerente faz tudo na barbearia. O profissional que não é gerente vê e mexe
+      só na própria agenda (marcar, concluir, falta, cancelar, bloquear) e vê só o que ele
+      ganhou no mês. Expediente, folgas, serviços, preços, %, outros profissionais e o caixa
+      da casa são só do gerente (403 `FORBIDDEN`). Pedir a agenda de outro profissional
+      dá 403. Em Clientes, o profissional busca, abre e cadastra ficha (para marcar no
+      balcão na agenda dele); editar ficha e liberar aparelho são só do gerente (403).
+    - Profissional desativado (a desativação é por barbearia): pedidos na barbearia onde
+      ele foi desativado dão 403 `FORBIDDEN`, com o mesmo corpo das outras recusas de
+      papel, mesmo com um token que já existia. Se ele ainda tem vínculo ativo em outra
+      barbearia (ou é gerente), o mesmo token continua valendo lá. Sem nenhum vínculo
+      ativo, o login com a senha certa dá o mesmo 401 da senha errada, e o token que ele
+      já tinha dá 401 no próximo pedido. O token é um só por pessoa (vale em todas as
+      barbearias dela) e não é revogado na desativação: a checagem é feita a cada pedido,
+      e reativar devolve o acesso. Histórico e caixa continuam, e o gerente reativa pelo
+      `PATCH` do profissional.
+    - Clientes: um cadastro global por telefone e uma ficha por barbearia. A Casa só vê e
+      busca as fichas da própria barbearia. Balcão sem telefone cria só a ficha.
+    - Código do aparelho (`X-Client-Code`): o app gera o código (UUID v4) e guarda no
+      aparelho. O servidor **nunca** devolve código. O código fica preso ao telefone quando
+      o primeiro agendamento entra (recusado não prende nada). Um aparelho tem um telefone
+      só, e um telefone tem um aparelho só. A liberação na troca de celular é do gerente e
+      vale para todas as barbearias.
+    - Pedido repetido: cancelar, mudar status e agendar levam `Idempotency-Key`. Mesma
+      chave devolve o mesmo resultado. Chave nova num agendamento que já saiu de
+      `SCHEDULED` dá 409 `STATUS_CHANGED`, e a tela recarrega.
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local (docker compose)
+tags:
+  - name: Auth
+    description: Login da casa (gerente e profissional).
+  - name: Cliente
+    description: App Cliente. Sem senha; identifica o aparelho pelo código do cliente.
+  - name: Agenda
+    description: App Casa. Agenda, balcão, bloqueios e mudança de status.
+  - name: Equipe
+    description: App Casa. Profissionais, expediente e folgas.
+  - name: Clientes
+    description: App Casa. Busca e cadastro de clientes.
+  - name: Serviços
+    description: App Casa. Serviços e preços.
+  - name: Gerência
+    description: App Casa. `/commission` é só do gerente. `/cash` e `/cash/professionals/{professionalId}` também respondem ao profissional, só com a linha dele (403 se pedir a de outro).
+
+security: []
+
+paths:
+  # ---------------------------------------------------------------- Auth
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Entrar com e-mail e senha (gerente ou profissional)
+      description: |
+        Senha errada, e-mail que não existe e profissional desativado sem nenhum vínculo
+        ativo (em nenhuma barbearia) recebem o mesmo 401, com o mesmo corpo. O token vale
+        para todas as barbearias da pessoa.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Logado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: Usuário logado e seus vínculos
+      security: [{ staffToken: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StaffUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Sair (invalida o token)
+      security: [{ staffToken: [] }]
+      responses:
+        '204': { description: Saiu }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------- Cliente
+  /barbershops:
+    get:
+      tags: [Cliente]
+      operationId: listBarbershops
+      summary: Barbearias para a tela Início (história 15)
+      parameters:
+        - name: q
+          in: query
+          description: Busca por nome ou bairro.
+          schema: { type: string, maxLength: 80 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BarbershopSummary' }
+  /barbershops/{barbershopId}:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    get:
+      tags: [Cliente]
+      operationId: getBarbershop
+      summary: Página da barbearia com serviços e profissionais ativos (história 16)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BarbershopDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /barbershops/{barbershopId}/availability:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    get:
+      tags: [Cliente]
+      operationId: getAvailability
+      summary: Horários livres de um profissional num dia, agrupados por turno (história 1)
+      description: |
+        Horários começam de 30 em 30 minutos. Só aparece o horário em que o serviço inteiro
+        cabe no expediente do profissional, sem bater com folga, bloqueio ou agendamento
+        ativo, e com pelo menos 30 minutos de antecedência (hora do servidor).
+        `date` vai de hoje até hoje + 13 (14 dias); fora disso, 422 `DATE_OUT_OF_RANGE`.
+      parameters:
+        - { name: serviceId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: professionalId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Availability' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/bookings:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    post:
+      tags: [Cliente]
+      operationId: createClientBooking
+      summary: Cliente agenda um horário (história 1)
+      description: |
+        O app sempre manda o próprio `X-Client-Code` e o `client` (nome e telefone). O
+        servidor cria ou acha o cliente pelo telefone normalizado. Se o telefone ainda não
+        tem aparelho, o código fica preso a ele quando o agendamento entra. Recusas:
+        - telefone preso a outro código: 409 `PHONE_ON_OTHER_DEVICE` (o app mostra "Esse
+          telefone já está em outro aparelho. Fale com a barbearia.");
+        - código preso a outro telefone: 409 `DEVICE_PHONE_MISMATCH` (o app trava o campo
+          de telefone depois do 1º agendamento, então só chega aqui por chamada direta).
+        O servidor confere o código antes do telefone: se as duas regras batem, vem
+        `DEVICE_PHONE_MISMATCH`. Ordem: código ausente, fora do formato ou liberado dá 401;
+        código novo bem formado é aceito aqui (é assim que o aparelho se registra), e
+        código desconhecido dá o mesmo 401 em toda leitura e cancelamento do cliente
+        (nunca 200 com lista vazia).
+
+        Regras: no mínimo 30 minutos de antecedência (`TOO_SOON`), dentro do expediente
+        (`OUTSIDE_WORKING_HOURS`), até hoje + 13 (`DATE_OUT_OF_RANGE`), sem conflito
+        (`SLOT_TAKEN`) e no máximo 2 horários futuros por telefone marcados pelo app,
+        somando todas as barbearias (`BOOKING_LIMIT_REACHED`). O que a Casa marca não conta.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ClientCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientBookingRequest' }
+      responses:
+        '201':
+          description: Agendado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '200':
+          description: Mesma `Idempotency-Key` de antes; devolve o agendamento original
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`SLOT_TAKEN`, `PHONE_ON_OTHER_DEVICE` ou `DEVICE_PHONE_MISMATCH`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /me/bookings:
+    get:
+      tags: [Cliente]
+      operationId: listMyBookings
+      summary: Meus horários (história 4) e próximo horário do Início (história 15)
+      description: |
+        Código que o servidor não conhece (aparelho que ainda não agendou) ou que o gerente
+        liberou dá 401, como qualquer código inválido. Por isso o app não chama esta rota
+        antes do primeiro agendamento dar certo: mostra "Você ainda não tem horários"
+        sozinho. Se receber 401 depois de já ter agendado, o app mostra "Este aparelho foi
+        desconectado pela barbearia.", apaga o código e volta ao estado de cliente novo.
+      security: [{ clientCode: [] }]
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [upcoming, past], default: upcoming }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: Próximos em ordem crescente; passados em ordem decrescente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /me/bookings/{bookingId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/BookingId'
+    post:
+      tags: [Cliente]
+      operationId: cancelMyBooking
+      summary: Cliente cancela com 2 horas ou mais de antecedência (história 4)
+      description: |
+        Exatamente 2h antes ainda pode; 2h menos 1 s já dá 422 `CANCEL_WINDOW_CLOSED`.
+        Mesma `Idempotency-Key` devolve o mesmo resultado. Chave nova num agendamento que
+        já não está `SCHEDULED` dá 409 `STATUS_CHANGED`.
+      security: [{ clientCode: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Cancelado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StatusChanged' }
+        '422':
+          description: '`CANCEL_WINDOW_CLOSED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ---------------------------------------------------------------- Agenda (Casa)
+  /barbershops/{barbershopId}/agenda:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    get:
+      tags: [Agenda]
+      operationId: getAgenda
+      summary: Agenda do dia por profissional (história 2)
+      description: |
+        Para cada profissional: janelas de expediente do dia (fora delas a tela pinta de
+        cinza), agendamentos e bloqueios. Folga de dia inteiro volta com `workingWindows`
+        vazio e `timeOff` preenchido.
+      security: [{ staffToken: [] }]
+      parameters:
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+        - name: professionalId
+          in: query
+          description: |
+            Gerente: filtra um profissional; sem filtro, vêm todos os ativos. Profissional
+            que não é gerente: sem filtro recebe só a dele; pedir outro profissional dá 403.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agenda' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /barbershops/{barbershopId}/staff/bookings:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    post:
+      tags: [Agenda]
+      operationId: createStaffBooking
+      summary: Marcar pela casa, inclusive horário de balcão (histórias 2 e 6)
+      description: |
+        `clientId` para cliente já cadastrado, ou `newClient` para cadastrar na hora.
+        `source = COUNTER` é o atendimento de balcão: nome obrigatório e telefone opcional.
+        Sem telefone, cria só a ficha desta barbearia. Em `STAFF`, telefone obrigatório. Na marcação pela Casa (STAFF ou
+        COUNTER) vale o limite de 14 dias (`DATE_OUT_OF_RANGE`), mas não valem os 30 min de
+        antecedência nem o limite de 2 horários do cliente: dá para marcar o horário de
+        30 min que está em andamento agora, se estiver livre. Horário que já terminou
+        devolve 422 `SLOT_IN_PAST`.
+        Profissional só marca na própria agenda; gerente marca em qualquer uma.
+      security: [{ staffToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffBookingRequest' }
+      responses:
+        '201':
+          description: Marcado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '200':
+          description: Mesma `Idempotency-Key` de antes; devolve o agendamento original
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/staff/bookings/{bookingId}/status:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - $ref: '#/components/parameters/BookingId'
+    post:
+      tags: [Agenda]
+      operationId: changeBookingStatus
+      summary: Concluir, marcar falta ou cancelar (história 2)
+      description: |
+        Só sai de `SCHEDULED`. Mesma `Idempotency-Key` devolve o mesmo resultado (mesmo
+        status e mesma % gravada). Chave nova num agendamento que já não está `SCHEDULED`
+        dá 409 `STATUS_CHANGED`, e a tela recarrega.
+        `COMPLETED` e `NO_SHOW` só a partir do horário de início (antes disso, 422
+        `TOO_EARLY`). `CANCELED` pela Casa vale a qualquer hora antes de concluir, sem a
+        regra das 2h, e grava `canceledBy = STAFF` (o cliente vê "cancelado pela barbearia").
+        Ao concluir, o servidor grava `shopPercent` e `professionalPercent` vigentes do
+        profissional no agendamento (história 20).
+      security: [{ staffToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusChangeRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StatusChanged' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/blocks:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    post:
+      tags: [Agenda]
+      operationId: createBlock
+      summary: Bloquear um intervalo (história 2)
+      description: |
+        Intervalo dentro de um mesmo dia, com início e fim na grade de 30 min (30 min é o
+        menor). `endAt` às 00:00 do dia seguinte conta como fim do mesmo dia; passar disso
+        dá 422. Profissional só bloqueia a própria agenda; gerente, qualquer uma.
+        Bloquear em cima de marcação ativa é permitido e não mexe nela: a marcação fica e
+        passa a vir com `overlapsBlock: true` na agenda. O único conflito é com outro
+        bloqueio do mesmo profissional (409 `SLOT_TAKEN`); encostado pode.
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BlockRequest' }
+      responses:
+        '201':
+          description: Bloqueado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Block' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: '`SLOT_TAKEN`: bate com outro bloqueio do mesmo profissional (marcação não conta)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/blocks/{blockId}:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - name: blockId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Agenda]
+      operationId: deleteBlock
+      summary: Desbloquear
+      description: |
+        Profissional desbloqueia só os bloqueios da própria agenda; gerente, qualquer um.
+        Não mexe em nenhuma marcação; a que estava debaixo volta a `overlapsBlock: false`
+        se não bater com outro bloqueio.
+      security: [{ staffToken: [] }]
+      responses:
+        '204': { description: Removido }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Equipe
+  /barbershops/{barbershopId}/professionals:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    get:
+      tags: [Equipe]
+      operationId: listProfessionals
+      summary: Profissionais da casa, inclusive inativos (história 10, só gerente)
+      security: [{ staffToken: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Professional' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Equipe]
+      operationId: createProfessional
+      summary: Incluir profissional (só gerente)
+      description: |
+        Com `email`, o servidor cria o login de profissional e devolve 201; o primeiro
+        acesso e a troca de senha ficam fora deste contrato por enquanto.
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfessionalRequest' }
+      responses:
+        '201':
+          description: Criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Professional' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/professionals/{professionalId}:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - $ref: '#/components/parameters/ProfessionalId'
+    patch:
+      tags: [Equipe]
+      operationId: updateProfessional
+      summary: Editar nome, foto ou desativar (só gerente)
+      description: |
+        Profissional não é apagado, só desativado. Desativar com horário futuro ativo
+        devolve 409 `PROFESSIONAL_HAS_FUTURE_BOOKINGS`; o gerente cancela antes. Desativado
+        some da agenda e do agendamento, mas histórico e caixa continuam. Desativado também
+        perde o acesso a esta barbearia na Casa (403 aqui; se não sobrar vínculo ativo em
+        nenhuma barbearia, login e token dão 401). Reativar é este mesmo `PATCH` com
+        `active: true`, e o acesso volta.
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfessionalPatch' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Professional' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`PROFESSIONAL_HAS_FUTURE_BOOKINGS`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/professionals/{professionalId}/working-hours:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - $ref: '#/components/parameters/ProfessionalId'
+    get:
+      tags: [Equipe]
+      operationId: getWorkingHours
+      summary: Expediente semanal (história 7)
+      security: [{ staffToken: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeeklyHours' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Equipe]
+      operationId: replaceWorkingHours
+      summary: Trocar o expediente semanal inteiro (só gerente)
+      description: |
+        Não apaga agendamentos que ficaram fora do novo expediente; eles continuam na
+        agenda e a tela mostra em cinza. Início e fim de cada janela ficam entre 08:00 e
+        21:00 e na grade de 30 min; senão 422 `VALIDATION_ERROR` com o campo
+        `days[i].windows[j].start` ou `days[i].windows[j].end`.
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WeeklyHours' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeeklyHours' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/professionals/{professionalId}/time-off:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - $ref: '#/components/parameters/ProfessionalId'
+    get:
+      tags: [Equipe]
+      operationId: listTimeOff
+      summary: Folgas a partir de hoje (história 7)
+      security: [{ staffToken: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TimeOff' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Equipe]
+      operationId: createTimeOff
+      summary: Lançar folga, dia inteiro ou intervalo (só gerente)
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TimeOffRequest' }
+      responses:
+        '201':
+          description: Criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimeOff' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: '`TIME_OFF_HAS_BOOKINGS`: existe agendamento ativo no período; cancele antes'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/professionals/{professionalId}/time-off/{timeOffId}:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - $ref: '#/components/parameters/ProfessionalId'
+      - name: timeOffId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Equipe]
+      operationId: deleteTimeOff
+      summary: Remover folga (só gerente)
+      security: [{ staffToken: [] }]
+      responses:
+        '204': { description: Removida }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- Clientes
+  /barbershops/{barbershopId}/clients:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    get:
+      tags: [Clientes]
+      operationId: searchClients
+      summary: Busca por nome ou telefone (história 17)
+      description: Gerente e profissional da barbearia.
+      security: [{ staffToken: [] }]
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 80 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Client' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Clientes]
+      operationId: createClient
+      summary: Cadastrar cliente (história 17)
+      description: Gerente e profissional da barbearia (o profissional precisa para marcar no balcão).
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientRequest' }
+      responses:
+        '201':
+          description: Criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: '`PHONE_IN_USE`: já existe cliente com esse telefone nesta barbearia'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/clients/{clientId}:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - name: clientId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Clientes]
+      operationId: getClient
+      summary: Ficha do cliente com os últimos agendamentos
+      security: [{ staffToken: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Clientes]
+      operationId: updateClient
+      summary: Editar cliente (só gerente)
+      description: Profissional que não é gerente leva 403 (ele busca, abre e cadastra, mas não edita).
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientPatch' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`PHONE_IN_USE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /barbershops/{barbershopId}/clients/{clientId}/release-device:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - name: clientId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Clientes]
+      operationId: releaseClientDevice
+      summary: Liberar aparelho na troca de celular (só gerente)
+      description: |
+        Botão "Liberar aparelho" na ficha do cliente. O código preso ao telefone para de
+        valer na hora (as chamadas com ele dão 401) em todas as barbearias. Os horários
+        futuros continuam, e o próximo aparelho que agendar com o telefone fica preso a ele
+        e passa a ver esses horários. Liberar um telefone sem aparelho devolve 204 igual.
+        Trava de segurança: só libera telefone que tem pelo menos um agendamento feito pelo
+        app nesta barbearia; ficha só de balcão dá 409 `DEVICE_RELEASE_NOT_ALLOWED`.
+        Profissional que não é gerente: 403. Cliente de outra barbearia: 404.
+      security: [{ staffToken: [] }]
+      responses:
+        '204': { description: Liberado }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`DEVICE_RELEASE_NOT_ALLOWED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  # ---------------------------------------------------------------- Serviços
+  /barbershops/{barbershopId}/services:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    get:
+      tags: [Serviços]
+      operationId: listServices
+      summary: Serviços da casa, inclusive inativos (história 10, só gerente)
+      security: [{ staffToken: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Service' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Serviços]
+      operationId: createService
+      summary: Criar serviço (só gerente)
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceRequest' }
+      responses:
+        '201':
+          description: Criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/services/{serviceId}:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - name: serviceId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Serviços]
+      operationId: updateService
+      summary: Mudar preço, duração ou desativar (só gerente)
+      description: Mudar o preço não altera agendamentos já criados (o preço fica gravado neles).
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServicePatch' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Service' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ---------------------------------------------------------------- Gerência
+  /barbershops/{barbershopId}/commission:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    get:
+      tags: [Gerência]
+      operationId: getCommission
+      summary: Divisão padrão da casa e a de cada profissional (história 20, só gerente)
+      security: [{ staffToken: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommissionSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Gerência]
+      operationId: replaceCommission
+      summary: Trocar a divisão (só gerente)
+      description: |
+        Cada par soma 100, senão 422 `COMMISSION_SUM_INVALID`. Profissional sem linha
+        própria usa o padrão da casa. Vale só para o que for concluído depois; o caixa
+        antigo não muda. O padrão ao criar a barbearia é 60% para o profissional e 40%
+        para a casa.
+
+        Troca tudo: quem não vier em `professionals` volta a usar o padrão. Campo
+        faltando, número com casa decimal, valor fora de 0 a 100, profissional repetido
+        ou que não é desta barbearia dão 422 `VALIDATION_ERROR`. Se qualquer item falhar,
+        nada é gravado.
+      security: [{ staffToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommissionSettings' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommissionSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/cash:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+    get:
+      tags: [Gerência]
+      operationId: getMonthlyCash
+      summary: Caixa do mês, total e por profissional (história 8)
+      description: |
+        Conta só agendamentos `COMPLETED` cujo `startAt` cai no mês (hora de Brasília),
+        usando o preço e as % gravados em cada agendamento. Falta e cancelado não entram;
+        balcão entra normalmente. Gerente vê todos (ativos, mesmo zerados, e desativados
+        que atenderam no mês); profissional recebe só a própria linha em `byProfessional`,
+        e `totals` igual a ela, sem o campo `shopCents`. Mês fora de AAAA-MM dá 422
+        `VALIDATION_ERROR`.
+      security: [{ staffToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Month'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonthlyCash' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /barbershops/{barbershopId}/cash/professionals/{professionalId}:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - $ref: '#/components/parameters/ProfessionalId'
+    get:
+      tags: [Gerência]
+      operationId: getProfessionalCash
+      summary: Atendimentos concluídos de um profissional no mês (gerente, ou o próprio profissional)
+      description: |
+        Mesmas regras do `/cash`. Profissional pedindo a de outro dá 403. Para o
+        profissional que não é gerente, `totals` vem sem `shopCents` e os agendamentos
+        vêm sem `shopPercent`. Profissional desativado continua com o histórico.
+      security: [{ staffToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Month'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfessionalCash' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+components:
+  securitySchemes:
+    staffToken:
+      type: http
+      scheme: bearer
+      description: Token devolvido por `/auth/login` (gerente e profissional).
+    clientCode:
+      type: apiKey
+      in: header
+      name: X-Client-Code
+      description: Código gerado pelo app (UUID v4) e guardado no aparelho. O servidor nunca devolve. Ausente, fora do formato, desconhecido ou liberado dá o mesmo 401.
+
+  parameters:
+    BarbershopId:
+      name: barbershopId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProfessionalId:
+      name: professionalId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID gerado pelo app por ação (agendar, cancelar, mudar status). Repetir a chave devolve o mesmo resultado. Mesma chave com outro pedido dá 422 `IDEMPOTENCY_KEY_REUSED`.
+      schema: { type: string, format: uuid }
+    ClientCode:
+      name: X-Client-Code
+      in: header
+      required: true
+      description: |
+        Código do aparelho, gerado pelo app (UUID). Ausente, fora do formato UUID, liberado
+        pelo gerente ou desconhecido onde precisa existir: todos dão o mesmo 401
+        `UNAUTHORIZED`, nunca 400 ou 422, pra não revelar se o código existe.
+      schema: { type: string, format: uuid }
+    Month:
+      name: month
+      in: query
+      required: true
+      description: Mês no formato AAAA-MM.
+      schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$', example: '2026-10' }
+
+  responses:
+    Unauthorized:
+      description: '`UNAUTHORIZED`: sem token, token vencido ou revogado, token de quem não tem mais nenhum vínculo ativo (profissional desativado em todas as barbearias) ou código do cliente inválido'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: '`FORBIDDEN`: logado, mas o papel não permite (ex.: profissional mexendo em preço) ou é profissional desativado nesta barbearia'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: '`NOT_FOUND`: não existe ou não é desta barbearia'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: '`SLOT_TAKEN`: o horário bate com agendamento ou bloqueio do mesmo profissional'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    StatusChanged:
+      description: '`STATUS_CHANGED`: o agendamento já saiu de `SCHEDULED` por outro pedido'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationError:
+      description: Regra de negócio ou campo inválido; ver `code` e `fields`
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Problem:
+      type: object
+      required: [status, code, title]
+      properties:
+        type: { type: string, format: uri, default: about:blank }
+        title: { type: string, example: Horário ocupado }
+        status: { type: integer, example: 409 }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        detail: { type: string, description: Texto para log; o app mostra a mensagem dele pelo `code`. }
+        fields:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string, example: phone }
+              message: { type: string }
+    ErrorCode:
+      type: string
+      enum:
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - VALIDATION_ERROR
+        - SLOT_TAKEN
+        - TOO_SOON
+        - OUTSIDE_WORKING_HOURS
+        - BOOKING_LIMIT_REACHED
+        - CANCEL_WINDOW_CLOSED
+        - STATUS_CHANGED
+        - PHONE_ON_OTHER_DEVICE
+        - DEVICE_PHONE_MISMATCH
+        - DEVICE_RELEASE_NOT_ALLOWED
+        - PHONE_IN_USE
+        - EMAIL_IN_USE
+        - TIME_OFF_HAS_BOOKINGS
+        - COMMISSION_SUM_INVALID
+        - DATE_OUT_OF_RANGE
+        - TOO_EARLY
+        - SLOT_IN_PAST
+        - PROFESSIONAL_HAS_FUTURE_BOOKINGS
+        - IDEMPOTENCY_KEY_REUSED
+
+    Role:
+      type: string
+      enum: [MANAGER, PROFESSIONAL]
+      description: Cliente não é papel de login. A mesma pessoa pode ter os dois.
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 120 }
+        password: { type: string, format: password, minLength: 8, maxLength: 72 }
+    Session:
+      type: object
+      required: [accessToken, expiresAt, user]
+      properties:
+        accessToken: { type: string }
+        expiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/StaffUser' }
+    StaffUser:
+      type: object
+      required: [id, name, email, memberships]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        memberships:
+          type: array
+          items: { $ref: '#/components/schemas/Membership' }
+    Membership:
+      type: object
+      required: [barbershopId, barbershopName, roles]
+      properties:
+        barbershopId: { type: string, format: uuid }
+        barbershopName: { type: string }
+        roles:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/Role' }
+        professionalId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Preenchido quando a pessoa também atende (papel PROFESSIONAL).
+
+    BarbershopSummary:
+      type: object
+      required: [id, name, neighborhood, city]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Barbearia Navalha }
+        neighborhood: { type: string, example: Pinheiros }
+        city: { type: string, example: São Paulo }
+        coverUrl: { type: string, format: uri, nullable: true }
+        startingPriceCents: { type: integer, minimum: 0, nullable: true, description: Menor preço ativo. }
+    BarbershopDetail:
+      allOf:
+        - $ref: '#/components/schemas/BarbershopSummary'
+        - type: object
+          required: [address, services, professionals]
+          properties:
+            address: { type: string }
+            phone: { type: string, nullable: true }
+            services:
+              type: array
+              items: { $ref: '#/components/schemas/Service' }
+            professionals:
+              type: array
+              items: { $ref: '#/components/schemas/ProfessionalPublic' }
+
+    Service:
+      type: object
+      required: [id, name, durationMinutes, priceCents, active]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Corte degradê }
+        durationMinutes: { type: integer, minimum: 30, maximum: 480, multipleOf: 30, example: 30 }
+        priceCents: { type: integer, minimum: 0, example: 5000 }
+        active: { type: boolean }
+    ServiceRequest:
+      type: object
+      required: [name, durationMinutes, priceCents]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        durationMinutes: { type: integer, minimum: 30, maximum: 480, multipleOf: 30, description: 'Múltiplo de 30 (30, 60, 90...). 45 dá 422.' }
+        priceCents: { type: integer, minimum: 0 }
+    ServicePatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        durationMinutes: { type: integer, minimum: 30, maximum: 480, multipleOf: 30, description: 'Múltiplo de 30 (30, 60, 90...). 45 dá 422.' }
+        priceCents: { type: integer, minimum: 0 }
+        active: { type: boolean }
+
+    ProfessionalPublic:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Caio }
+        photoUrl: { type: string, format: uri, nullable: true }
+    Professional:
+      allOf:
+        - $ref: '#/components/schemas/ProfessionalPublic'
+        - type: object
+          required: [active]
+          properties:
+            active: { type: boolean }
+            email: { type: string, format: email, nullable: true, description: 'Login dele, se tiver.' }
+    ProfessionalRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        email: { type: string, format: email, maxLength: 120 }
+        photoUrl: { type: string, format: uri }
+    ProfessionalPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        photoUrl: { type: string, format: uri, nullable: true }
+        active: { type: boolean }
+
+    TimeRange:
+      type: object
+      required: [start, end]
+      description: Hora local de Brasília, `HH:mm`, na grade de 30 min, entre 08:00 e 21:00. `end` maior que `start`. Fim às 00:00 não vale para o expediente.
+      properties:
+        start: { type: string, pattern: '^(0[89]|1\d|20):[03]0$', example: '09:00' }
+        end: { type: string, pattern: '^((0[89]|1\d|20):[03]0|21:00)$', example: '12:00' }
+    Weekday:
+      type: string
+      enum: [MON, TUE, WED, THU, FRI, SAT, SUN]
+    WeeklyHours:
+      type: object
+      required: [days]
+      properties:
+        days:
+          type: array
+          description: Dia ausente da lista é folga fixa. Até 3 janelas por dia (ex. manhã e tarde com almoço no meio), sem sobreposição.
+          items:
+            type: object
+            required: [weekday, windows]
+            properties:
+              weekday: { $ref: '#/components/schemas/Weekday' }
+              windows:
+                type: array
+                minItems: 1
+                maxItems: 3
+                items: { $ref: '#/components/schemas/TimeRange' }
+    TimeOffRequest:
+      type: object
+      required: [startAt, endAt]
+      properties:
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        reason: { type: string, maxLength: 120 }
+    TimeOff:
+      allOf:
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+        - $ref: '#/components/schemas/TimeOffRequest'
+
+    Period:
+      type: string
+      enum: [MORNING, AFTERNOON, EVENING]
+      description: 'Só filtro de tela, pelo início do horário: manhã 08:00-11:59, tarde 12:00-17:59, noite 18:00-21:00.'
+    Availability:
+      type: object
+      required: [date, professionalId, serviceId, slots]
+      properties:
+        date: { type: string, format: date }
+        professionalId: { type: string, format: uuid }
+        serviceId: { type: string, format: uuid }
+        slots:
+          type: array
+          items:
+            type: object
+            required: [startAt, period]
+            properties:
+              startAt: { type: string, format: date-time }
+              period: { $ref: '#/components/schemas/Period' }
+
+    BookingStatus:
+      type: string
+      enum: [SCHEDULED, COMPLETED, NO_SHOW, CANCELED]
+    BookingSource:
+      type: string
+      enum: [CLIENT_APP, STAFF, COUNTER]
+    Booking:
+      type: object
+      required: [id, barbershopId, status, source, startAt, endAt, service, professional, client, priceCents, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        barbershopId: { type: string, format: uuid }
+        barbershopName: { type: string, description: Usado no app Cliente. }
+        status: { $ref: '#/components/schemas/BookingStatus' }
+        source: { $ref: '#/components/schemas/BookingSource' }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time, description: startAt + duração do serviço gravada na criação. }
+        service:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        professional: { $ref: '#/components/schemas/ProfessionalPublic' }
+        client:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            phone: { type: string, pattern: '^\+55\d{10,11}$', nullable: true, description: Só aparece para a casa. Null no balcão sem telefone. }
+        priceCents: { type: integer, minimum: 0, description: Gravado na criação. }
+        shopPercent: { type: integer, minimum: 0, maximum: 100, nullable: true, description: Gravado ao concluir; só a casa vê. }
+        professionalPercent: { type: integer, minimum: 0, maximum: 100, nullable: true, description: Gravado ao concluir; só a casa vê. }
+        canCancel: { type: boolean, description: 'App Cliente: true se SCHEDULED e faltam 2h ou mais.' }
+        canceledBy: { type: string, enum: [CLIENT, STAFF], nullable: true }
+        note: { type: string, maxLength: 200, nullable: true }
+        createdAt: { type: string, format: date-time }
+        overlapsBlock:
+          type: boolean
+          description: |
+            Só na Casa (agenda, balcão, mudança de status, ficha do cliente); o app Cliente não
+            recebe. true quando a marcação está ativa (`SCHEDULED` ou `COMPLETED`) e bate com
+            algum bloqueio do mesmo profissional; a agenda destaca para o profissional resolver.
+            Calculado na leitura.
+    ClientInfo:
+      type: object
+      required: [name, phone]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 80 }
+        phone:
+          type: string
+          description: Qualquer formato que o usuário digitar; o servidor normaliza para +55 + DDD + número. Inválido dá 422.
+          minLength: 10
+          maxLength: 20
+          example: '(11) 98765-4321'
+        email: { type: string, format: email, maxLength: 120 }
+    ClientBookingRequest:
+      type: object
+      required: [serviceId, professionalId, startAt, client]
+      properties:
+        serviceId: { type: string, format: uuid }
+        professionalId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time, description: Um dos `slots` de `/availability`. }
+        client: { $ref: '#/components/schemas/ClientInfo' }
+    StaffBookingRequest:
+      type: object
+      required: [serviceId, professionalId, startAt, source]
+      properties:
+        serviceId: { type: string, format: uuid }
+        professionalId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        source:
+          type: string
+          enum: [STAFF, COUNTER]
+        clientId: { type: string, format: uuid, description: 'Use este OU `newClient`.' }
+        newClient: { $ref: '#/components/schemas/StaffNewClient' }
+        note: { type: string, maxLength: 200 }
+    StaffNewClient:
+      type: object
+      required: [name]
+      description: Telefone obrigatório em `STAFF` e opcional em `COUNTER` (422 se faltar em `STAFF`).
+      properties:
+        name: { type: string, minLength: 2, maxLength: 80 }
+        phone: { type: string, minLength: 10, maxLength: 20, description: Normalizado como em ClientInfo. }
+        email: { type: string, format: email, maxLength: 120 }
+    StatusChangeRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [COMPLETED, NO_SHOW, CANCELED]
+    BlockRequest:
+      type: object
+      required: [professionalId, startAt, endAt]
+      properties:
+        professionalId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        reason: { type: string, maxLength: 120 }
+    Block:
+      allOf:
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+        - $ref: '#/components/schemas/BlockRequest'
+    Agenda:
+      type: object
+      required: [date, professionals]
+      properties:
+        date: { type: string, format: date }
+        professionals:
+          type: array
+          items:
+            type: object
+            required: [professional, workingWindows, bookings, blocks, timeOff]
+            properties:
+              professional: { $ref: '#/components/schemas/ProfessionalPublic' }
+              workingWindows:
+                type: array
+                items: { $ref: '#/components/schemas/TimeRange' }
+              bookings:
+                type: array
+                description: Todos os status, para a tela mostrar concluído, falta e cancelado.
+                items: { $ref: '#/components/schemas/Booking' }
+              blocks:
+                type: array
+                items: { $ref: '#/components/schemas/Block' }
+              timeOff:
+                type: array
+                items: { $ref: '#/components/schemas/TimeOff' }
+
+    Client:
+      type: object
+      required: [id, name, phone, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        phone: { type: string, pattern: '^\+55\d{10,11}$', nullable: true, example: '+5511987654321', description: Null na ficha de balcão sem telefone. }
+        hasDevice: { type: boolean, description: true se o telefone tem aparelho preso; o app Casa mostra "Liberar aparelho" só pro gerente. }
+        email: { type: string, format: email, nullable: true }
+        createdAt: { type: string, format: date-time }
+    ClientDetail:
+      allOf:
+        - $ref: '#/components/schemas/Client'
+        - type: object
+          required: [recentBookings]
+          properties:
+            recentBookings:
+              type: array
+              maxItems: 10
+              items: { $ref: '#/components/schemas/Booking' }
+    ClientRequest:
+      $ref: '#/components/schemas/ClientInfo'
+    ClientPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 2, maxLength: 80 }
+        phone: { type: string, minLength: 10, maxLength: 20, description: Normalizado como em ClientInfo. }
+        email: { type: string, format: email, maxLength: 120, nullable: true }
+
+    CommissionSplit:
+      type: object
+      required: [shopPercent, professionalPercent]
+      description: Inteiros de 0 a 100 que somam 100.
+      properties:
+        shopPercent: { type: integer, minimum: 0, maximum: 100, example: 40 }
+        professionalPercent: { type: integer, minimum: 0, maximum: 100, example: 60 }
+    CommissionSettings:
+      type: object
+      required: [default, professionals]
+      properties:
+        default: { $ref: '#/components/schemas/CommissionSplit' }
+        professionals:
+          type: array
+          description: Só quem tem divisão própria. Quem não está aqui usa `default`.
+          items:
+            allOf:
+              - type: object
+                required: [professionalId]
+                properties:
+                  professionalId: { type: string, format: uuid }
+              - $ref: '#/components/schemas/CommissionSplit'
+    CashTotals:
+      type: object
+      required: [completedCount, grossCents, professionalCents]
+      properties:
+        completedCount: { type: integer, minimum: 0 }
+        grossCents: { type: integer, minimum: 0 }
+        shopCents:
+          type: integer
+          minimum: 0
+          description: Parte da casa. Só o gerente recebe. Para o profissional que não é gerente o campo não vem (nem `null`, nem zero), no `/cash` e no `/cash/professionals/{professionalId}`.
+        professionalCents:
+          type: integer
+          minimum: 0
+          description: 'Por agendamento: professionalCents = preço × % / 100 arredondado para o centavo mais próximo (meio centavo sobe); shopCents = preço − professionalCents. Assim casa + profissionais fecha com o bruto, centavo por centavo.'
+    MonthlyCash:
+      type: object
+      required: [month, totals, byProfessional]
+      properties:
+        month: { type: string, example: '2026-10' }
+        totals: { $ref: '#/components/schemas/CashTotals' }
+        byProfessional:
+          type: array
+          items:
+            allOf:
+              - type: object
+                required: [professional]
+                properties:
+                  professional: { $ref: '#/components/schemas/ProfessionalPublic' }
+              - $ref: '#/components/schemas/CashTotals'
+    ProfessionalCash:
+      type: object
+      required: [month, professional, totals, bookings]
+      properties:
+        month: { type: string }
+        professional: { $ref: '#/components/schemas/ProfessionalPublic' }
+        totals: { $ref: '#/components/schemas/CashTotals' }
+        bookings:
+          type: array
+          items: { $ref: '#/components/schemas/Booking' }
