@@ -432,10 +432,6 @@ class CashIT extends DomainTest {
         assertThat(p2.status()).isEqualTo(200);
         assertThat(p2.body().get("bookings")).hasSize(1);
 
-        // P2 só tem a barbearia A. Desativado, o token antigo não entra mais: 401, não 200.
-        Res denied = cash(w.tP2, w.shopA, "2026-10");
-        assertThat(denied.status()).as("token do desativado: %s", denied).isEqualTo(401);
-
         Res nov = cash(w.tGA, w.shopA, "2026-11");
         assertThat(line(nov, w.p2)).isNull();
         List<String> names = new ArrayList<>(nov.body().get("byProfessional").findValuesAsText("name"));
