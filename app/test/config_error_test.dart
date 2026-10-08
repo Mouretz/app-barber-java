@@ -1,5 +1,7 @@
 import 'package:cortaaqui/app.dart';
 import 'package:cortaaqui/core/config/app_config.dart';
+import 'package:cortaaqui/theme/corta_tokens.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// CT-00-49: DATA_SOURCE inválido mostra tela de erro legível, nunca tela branca nem mock.
@@ -20,7 +22,20 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Erro de configuração'), findsOneWidget);
-      expect(find.textContaining('DATA_SOURCE'), findsWidgets);
+      expect(
+        find.textContaining('DATA_SOURCE recebido: "$raw"'),
+        findsOneWidget,
+      );
+
+      // Contraste AA: título e detalhe com as cores do tema escuro, no fundo do tema.
+      final title = tester.widget<Text>(find.text('Erro de configuração'));
+      final detail = tester.widget<Text>(
+        find.textContaining('DATA_SOURCE recebido'),
+      );
+      final bg = tester.widget<Scaffold>(find.byType(Scaffold)).backgroundColor;
+      expect(title.style?.color, CortaTokens.dark.text);
+      expect(detail.style?.color, CortaTokens.dark.textMuted);
+      expect(bg, CortaTokens.dark.bg);
       expect(find.text('Entrar como cliente novo'), findsNothing);
       expect(find.byType(CortaAquiApp), findsNothing);
     });

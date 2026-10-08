@@ -24,7 +24,10 @@ Widget rootFor(Flavor flavor, AppConfig Function() loadConfig) {
   try {
     config = loadConfig();
   } on ArgumentError catch (e) {
-    return ConfigErrorApp(flavor: flavor, detail: '${e.name}: ${e.message}');
+    return ConfigErrorApp(
+      flavor: flavor,
+      detail: '${e.name} recebido: "${e.invalidValue}" (${e.message})',
+    );
   }
   return ProviderScope(
     overrides: [appConfigProvider.overrideWithValue(config)],
@@ -46,30 +49,47 @@ class ConfigErrorApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildCortaTheme(),
       themeMode: ThemeMode.dark,
-      home: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Erro de configuração',
-                  style: Theme.of(context).textTheme.headlineSmall,
+      home: Builder(
+        builder: (context) {
+          // Cores direto dos tokens do tema escuro: o contexto aqui é o do MaterialApp,
+          // mas assim a tela não depende de nenhum provider nem do tema carregar.
+          const tokens = CortaTokens.dark;
+          final textTheme = Theme.of(context).textTheme;
+          return Scaffold(
+            backgroundColor: tokens.bg,
+            body: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Erro de configuração',
+                      style: textTheme.headlineSmall?.copyWith(
+                        color: tokens.text,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Este aplicativo foi gerado com uma configuração inválida '
+                      'e não pode abrir. Gere o app de novo com DATA_SOURCE=mock '
+                      'ou DATA_SOURCE=api.',
+                      style: textTheme.bodyMedium?.copyWith(color: tokens.text),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      detail,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: tokens.textMuted,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Este aplicativo foi gerado com uma configuração inválida '
-                  'e não pode abrir. Gere o app de novo com DATA_SOURCE=mock '
-                  'ou DATA_SOURCE=api.',
-                ),
-                const SizedBox(height: 12),
-                Text(detail, style: Theme.of(context).textTheme.bodySmall),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
