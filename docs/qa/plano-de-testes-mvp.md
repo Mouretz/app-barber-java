@@ -88,6 +88,7 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
 
 **Caixa e %**
 - **% por profissional, só número inteiro de 0 a 100.** Padrão: 60% pro profissional e 40% pra casa. Só o gerente muda. A soma é sempre 100. (CT-20-01 a CT-20-07)
+- **`PUT /commission` troca a lista inteira (regra aprovada pelo PO, 08/10).** O corpo traz o padrão da casa e a lista de quem tem % própria. Quem fica fora da lista volta a usar o padrão da casa (60/40, enquanto o gerente não mudar o padrão). ID repetido, de outra barbearia ou inexistente dá 422 `VALIDATION_ERROR`. Se qualquer item falha, nada é gravado. Lista vazia põe todo mundo no padrão. Repetir o mesmo PUT dá o mesmo resultado, por isso a rota não usa `Idempotency-Key`. (CT-20-11 a CT-20-16)
 - **A % fica gravada no agendamento na conclusão.** Mudar depois não altera o caixa antigo. (CT-20-04, CT-20-05)
 - **Entra no caixa:** só agendamento `concluido`, inclusive a marcação de balcão. **Não entram:** falta, cancelado e agendado ainda não concluído. (CT-08-02, CT-08-03, CT-08-11)
 - **Arredondamento (confirmado):** é **por agendamento, na conclusão**, não no total do mês. O valor do profissional = preço × % arredondado pro centavo mais próximo, com meio centavo pra cima (`HALF_UP`). A casa fica com o resto (preço − valor do profissional). O caixa do mês só soma os valores já gravados. Confirmado pelo PO em 07/10: o CT-20-08 e o CT-20-09 ficam como estão. (CT-20-08, CT-20-09)
@@ -220,8 +221,8 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-03-04 | P1 tem 10:00–10:30. | Agendar 10:30–11:00 e 09:30–10:00 (encostados). | Os dois aceitos. Intervalo é `[início, fim)`. | INT + API |
 | CT-03-05 | P1 tem 10:00–10:30. | Agendar P2 10:00–10:30. | Aceito: a regra é por profissional. | INT |
 | CT-03-06 | P1 tem 10:00–10:30 `cancelado`. | Agendar 10:00–10:30 para P1. | Aceito: cancelado não ocupa (a constraint só vale para ativos). | INT + API |
-| CT-03-07 | P1 livre às 10:00. | **Concorrência real:** 2 conexões separadas tentam gravar 10:00–10:30 para P1 ao mesmo tempo (threads soltas juntas por um `CountDownLatch`), clientes diferentes. Repetir 50 vezes. | Em todas as rodadas: exatamente 1 sucesso e 1 conflito. No banco, 1 agendamento ativo. **Tem que falhar sem a constraint** (o "confere e depois grava" deixa os 2 passarem). | INT |
-| CT-03-08 | P1 livre. | Concorrência com sobreposição parcial: Corte + Barba 10:00–11:00 e Corte 10:30–11:00, ao mesmo tempo. | Só 1 vale. | INT |
+| CT-03-07 | P1 livre às 10:00. | **Concorrência real:** 2 conexões separadas tentam gravar 10:00–10:30 para P1 ao mesmo tempo (threads soltas juntas por um `CountDownLatch`), clientes diferentes. Repetir 50 vezes. | Em todas as rodadas: exatamente 1 sucesso e 1 conflito (409 `SLOT_TAKEN`). No banco, 1 agendamento ativo. **Nunca 500:** o Postgres pode abortar uma das duas gravações com deadlock (40P01) na trava `EXCLUDE`; isso também tem que virar 409 `SLOT_TAKEN` (ou a gravação é repetida e aí leva o 409). **Tem que falhar sem a constraint** (o "confere e depois grava" deixa os 2 passarem). | INT |
+| CT-03-08 | P1 livre. | Concorrência com sobreposição parcial: Corte + Barba 10:00–11:00 e Corte 10:30–11:00, ao mesmo tempo. | Só 1 vale. O outro leva 409 `SLOT_TAKEN`, nunca 500 (nem com deadlock 40P01). | INT |
 | CT-03-09 | P1 livre às 10:00. | **Concorrência real:** ao mesmo tempo, o app do cliente agenda 10:00, a Casa lança balcão 10:00 e a Casa bloqueia 10:00–10:30. Repetir 20 vezes. | Em todas as rodadas: no máximo 1 agendamento (app ou balcão) entra; o outro leva 409 `SLOT_TAKEN`. O bloqueio sempre entra. Se um agendamento entrou, ele vem com `overlapsBlock = true`; se o bloqueio chegou antes, os 2 agendamentos são recusados. Nunca 500, nunca 2 agendamentos. | INT |
 | CT-03-10 | P1 tem 10:00–10:30 com status `concluido`. Em outro teste, com status `falta`. | Agendar 10:00–10:30 para P1. | Concluído ocupa: recusado. Falta não ocupa: aceito. | INT + API |
 | CT-03-11 | P1 tem 10:00–10:30 em cada um destes estados, um por teste: `agendado`, `concluido`, bloqueio, `falta`, `cancelado`. | Inserir direto no banco uma marcação 10:15–10:45 e, em outro teste, um bloqueio 10:00–11:00 para P1. | Marcação: recusada com `agendado`, `concluido` e bloqueio (constraint ou trigger); aceita com `falta` e `cancelado`. Bloqueio: aceito com `agendado`, `concluido`, `falta` e `cancelado`; recusado só em cima do bloqueio. | INT |
@@ -434,14 +435,20 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 |---|---|---|---|---|
 | CT-20-01 | Profissional novo, sem % definida. | Ler a % dele. | 60% profissional e 40% casa. | API |
 | CT-20-02 | G-A logado. | Salvar para P1: 70/30, 100/0 e 0/100. | Os 3 aceitos (somam 100). | UNI + API |
-| CT-20-03 | G-A logado. | Salvar para P1: 60,5/39,5 (decimal), -1/101, 101/-1, 70/40 (110), 50/49 (99), texto e só um dos dois valores. | Todos recusados (422). A % de P1 não muda. | UNI + API |
+| CT-20-03 | G-A logado. | Salvar para P1: 60,5/39,5 (decimal), 60.0/40.0 (decimal com zero), -1/101, 101/-1, 70/40 (110), 50/49 (99), texto e só um dos dois valores. | Todos recusados (422). A % de P1 não muda. | UNI + API |
 | CT-20-04 | P1 com 60/40. Horário `agendado`. | Concluir. | O agendamento grava 60/40 (e o preço) no momento da conclusão. | INT |
 | CT-20-05 | Horário de P1 concluído em outubro com 60/40. | G-A muda P1 para 50/50. Abrir o caixa de outubro de novo. | O caixa de outubro **não muda**. | INT + API |
 | CT-20-06 | Horário de P1 marcado quando a % era 60/40. | G-A muda P1 para 50/50. Depois concluir. | Grava 50/50 (vale a % do momento da conclusão). | INT |
-| CT-20-07 | P1 60/40, P2 70/30. | G-A muda só P1 para 50/50. Concluir 1 horário de cada. | P1 grava 50/50 e P2 continua 70/30. A % é por profissional. | INT |
+| CT-20-07 | P1 60/40, P2 70/30. | G-A muda só P1 para 50/50 (o PUT troca a lista inteira, então manda P1 com 50/50 e P2 com 70/30). Concluir 1 horário de cada. | P1 grava 50/50 e P2 continua 70/30. A % é por profissional. | INT |
 | CT-20-08 | — | Teste parametrizado do cálculo (preço, % do profissional → profissional / casa):<br>R$ 0,05 a 50% → 0,03 / 0,02<br>R$ 0,01 a 50% → 0,01 / 0,00<br>R$ 33,33 a 60% → 20,00 / 13,33<br>R$ 33,33 a 50% → 16,67 / 16,66<br>R$ 10,01 a 33% → 3,30 / 6,71<br>R$ 40,00 a 0% → 0,00 / 40,00<br>R$ 40,00 a 100% → 40,00 / 0,00 | Todos exatos. Meio centavo vai pra cima no valor do profissional e a casa fica com o resto. O caso R$ 33,33 a 50% pega quem calcula com `double` (daria 16,66). | UNI |
 | CT-20-09 | P1 com 60%. Horário de R$ 33,33 `agendado`. | Concluir. Ler o agendamento no banco e abrir o caixa. | Gravado: profissional R$ 20,00 e casa R$ 13,33. O caixa mostra esses mesmos valores, sem recalcular. | INT + API |
 | CT-20-10 | P1 logado (não gerente). | `GET /commission` e `PUT /commission` (mudando a % de P1 e a de P2). Repetir o GET e o PUT com G-A. | P1: **403** nos dois, nenhuma % volta e nada muda no banco. G-A: 200 nos dois. Ver o próprio caixa (CT-08-13) não dá acesso à %. | API |
+| CT-20-11 | P1 50/50 e P2 70/30 com % própria. Padrão 60/40. | G-A faz `PUT /commission` só com P1 50/50 na lista. Depois `GET /commission` e concluir 1 horário de P2. | 200. P2 sai da lista e volta ao padrão: o GET traz só P1 e P2 grava 60/40 na conclusão. | API + INT |
+| CT-20-12 | P1 e P2 da A. PB1 da B. | G-A faz `PUT /commission` com: P1 duas vezes (50/50 e 30/70); PB1; um ID que não existe; item sem `professionalId`. Um pedido por caso. | Todos 422 `VALIDATION_ERROR`, com o campo do item. Nada muda no banco (nem o padrão, nem os outros itens do mesmo corpo). | API |
+| CT-20-13 | P2 com 70/30. | G-A faz `PUT /commission` com padrão 45/55 e lista vazia. Concluir 1 horário de P1 e 1 de P2. | 200 com `professionals` vazio. P1 e P2 gravam 55/45 (o novo padrão). A barbearia B não muda. | API + INT |
+| CT-20-14 | — | G-A manda o mesmo `PUT /commission` 2 vezes seguidas. | As 2 respostas são 200 e iguais, e o banco fica igual ao da 1ª. A rota não pede `Idempotency-Key`. | API |
+| CT-20-15 | — | **Concorrência real:** 2 `PUT /commission` diferentes ao mesmo tempo (A: padrão 50/50 e P1 30/70; B: padrão 60/40 e GP 20/80). Repetir 20 vezes. | Os 2 dão 200. No fim de cada rodada, o banco está exatamente como A ou exatamente como B, nunca misturado (ex.: padrão de A com a lista de B). | INT |
+| CT-20-16 | P3 desativado (CT-10-04). | G-A faz `PUT /commission` com P3 50/50 na lista. | Depende da [pergunta 7](#perguntas-em-aberto). Hoje o servidor aceita (200) e guarda 50/50 em P3. | API |
 
 (Profissional tentando mudar a %: CT-00-16.)
 
@@ -561,6 +568,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-00-46 | APK mock (`DATA_SOURCE=mock`), app Cliente com o João preso ao aparelho e o próximo horário dele no Início. | No menu, tocar em "Entrar como cliente novo". Conferir o armazenamento do aparelho, a tela, o Início e o campo de telefone. Depois agendar com o telefone do Rafael. | O código do aparelho é apagado. O app volta pro começo. O João não aparece mais no Início (nem o horário dele). O campo de telefone vem livre e vazio. O agendamento com o telefone do Rafael leva 409 `PHONE_ON_OTHER_DEVICE`, com a mensagem "Esse telefone já está em outro aparelho. Fale com a barbearia.", e nada é gravado. | FLU + MAN |
 | CT-00-47 | Widget test do app Cliente com `DATA_SOURCE=api` e com `DATA_SOURCE=mock`. | Abrir o menu nas 2 configurações e procurar "Entrar como cliente novo". | Com `api`: o botão não existe (nem o texto nem a ação). Com `mock`: o botão aparece. | FLU |
 | CT-00-48 | APK de release do app Cliente gerado com `--dart-define=DATA_SOURCE=api` (a CI hoje só gera o APK mock, então é preciso gerar esse). | Instalar, abrir e conferir o menu e as telas. | Não há o botão "Entrar como cliente novo" em lugar nenhum. | MAN |
+| CT-00-49 | Build com `--dart-define=DATA_SOURCE=` vazio, com `prod` e com `apii` (um de cada vez). Em outro build, sem `DATA_SOURCE`. | Abrir o app. | Com valor vazio ou desconhecido o app **nunca** vira mock: abre uma tela de erro legível dizendo que o build está mal configurado (com o valor recebido), nunca tela branca, e não chama o servidor. Sem `DATA_SOURCE`: abre em mock. O ideal é a CI recusar o build com valor inválido antes de gerar o APK. | FLU + MAN |
 
 ---
 
@@ -665,6 +673,7 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 
 5. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
 6. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
+7. **Profissional desativado na lista da Gerência:** o `PUT /commission` com um profissional desativado na lista aceita e guarda a % (vale se ele for reativado) ou recusa com 422? Hoje o servidor aceita. (CT-20-16)
 
 ## 11. Resumo dos casos
 
@@ -682,8 +691,8 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 | CT-17 | (17) Clientes | 33 |
 | CT-10 | (10) Preços, serviços e profissionais | 9 |
 | CT-08 | (8) Caixa do mês | 15 |
-| CT-20 | (20) Gerência | 10 |
+| CT-20 | (20) Gerência | 16 |
 | CT-09 | (9) Visual | 12 |
 | CT-13 | (13) Nome CortaAqui | 3 |
-| CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 48 |
-| **Total** | | **263** |
+| CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 49 |
+| **Total** | | **270** |
