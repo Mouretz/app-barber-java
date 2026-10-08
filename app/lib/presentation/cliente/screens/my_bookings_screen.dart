@@ -232,7 +232,9 @@ class _Empty extends StatelessWidget {
       child: Column(
         children: [
           Text(
-            upcoming ? 'Nenhum horário marcado' : 'Nada no histórico ainda',
+            upcoming
+                ? 'Você ainda não tem horários'
+                : 'Nada no histórico ainda',
             style: text.titleLarge,
           ),
           const SizedBox(height: 6),

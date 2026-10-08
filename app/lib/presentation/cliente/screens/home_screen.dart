@@ -98,7 +98,7 @@ class _EmptyNext extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Nenhum horário marcado', style: text.titleLarge),
+          Text('Você ainda não tem horários', style: text.titleLarge),
           const SizedBox(height: 4),
           Text(
             'Escolha uma barbearia e garanta sua cadeira.',

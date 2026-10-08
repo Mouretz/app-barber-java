@@ -51,7 +51,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Horário cancelado.'), findsOneWidget);
-    expect(find.text('Nenhum horário marcado'), findsOneWidget);
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('scope-past')));
     await tester.pumpAndSettle();
@@ -163,7 +163,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('cancel-$joaoNext')), findsNothing);
-    expect(find.text('Nenhum horário marcado'), findsOneWidget);
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('scope-past')));
     await tester.pumpAndSettle();
     expect(
@@ -191,7 +191,7 @@ void main() {
       clientCode: joaoCode,
       location: '/horarios',
     );
-    expect(find.text('Nenhum horário marcado'), findsOneWidget);
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNull);
     expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
@@ -210,7 +210,7 @@ void main() {
       clock: clock,
       location: '/horarios',
     );
-    expect(find.text('Nenhum horário marcado'), findsOneWidget);
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
     expect(find.text(MockSeed.navalha.name), findsNothing);
   });
 }

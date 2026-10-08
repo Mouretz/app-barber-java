@@ -15,7 +15,7 @@ void main() {
     final clock = FixedClock(kNow);
     await pumpCliente(tester, repo: seededRepo(clock), clock: clock);
     expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
-    expect(find.text('Nenhum horário marcado'), findsOneWidget);
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Agendar'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Agendar'));
