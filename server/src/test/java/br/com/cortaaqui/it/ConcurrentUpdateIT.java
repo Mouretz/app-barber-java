@@ -3,10 +3,18 @@ package br.com.cortaaqui.it;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import br.com.cortaaqui.support.DomainTest;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 
 /**
@@ -24,15 +32,32 @@ import org.springframework.http.HttpMethod;
 class ConcurrentUpdateIT extends DomainTest {
 
     private static final String MESSAGE = "Não deu pra concluir agora. Tente de novo.";
+    /** Advisory lock que o teste segura para a 1ª tentativa esperar dentro do trigger. */
+    private static final long GATE = 4242;
+
+    @Autowired
+    private DataSource dataSource;
 
     /** Liga a falha forçada: as {@code times} primeiras linhas em {@code table} ({@code event}) levam {@code sqlState}. */
     private void failNext(String table, String event, String sqlState, int times) {
+        failNext(table, event, sqlState, times, false);
+    }
+
+    /**
+     * Igual, mas com {@code waitGate}: antes de falhar, a tentativa espera o advisory lock
+     * {@link #GATE} (que o teste segura). Assim dá para fazer outra coisa no banco no meio da
+     * 1ª tentativa, com ela já tendo lido o estado, e só então deixar ela falhar.
+     */
+    private void failNext(String table, String event, String sqlState, int times, boolean waitGate) {
         dropForcedFailure();
         db.sql("CREATE SEQUENCE test_forced_fail_seq").update();
         db.sql("""
                 CREATE OR REPLACE FUNCTION test_forced_fail() RETURNS trigger LANGUAGE plpgsql AS $$
                 BEGIN
                     IF nextval('test_forced_fail_seq') <= TG_ARGV[1]::int THEN
+                        IF TG_ARGV[2]::boolean THEN
+                            PERFORM pg_advisory_xact_lock_shared(4242); -- GATE
+                        END IF;
                         RAISE EXCEPTION 'falha forçada pelo teste (%)', TG_ARGV[0] USING ERRCODE = TG_ARGV[0];
                     END IF;
                     IF TG_OP = 'DELETE' THEN
@@ -42,7 +67,8 @@ class ConcurrentUpdateIT extends DomainTest {
                 END $$
                 """).update();
         db.sql("CREATE TRIGGER test_forced_fail BEFORE " + event + " ON " + table
-                + " FOR EACH ROW EXECUTE FUNCTION test_forced_fail('" + sqlState + "', '" + times + "')").update();
+                + " FOR EACH ROW EXECUTE FUNCTION test_forced_fail('" + sqlState + "', '" + times + "', '" + waitGate + "')")
+                .update();
     }
 
     /** Quantas vezes o trigger rodou (= tentativas que chegaram na escrita). */
@@ -54,6 +80,7 @@ class ConcurrentUpdateIT extends DomainTest {
     void dropForcedFailure() {
         db.sql("DROP TRIGGER IF EXISTS test_forced_fail ON bookings").update();
         db.sql("DROP TRIGGER IF EXISTS test_forced_fail ON blocks").update();
+        db.sql("DROP TRIGGER IF EXISTS test_forced_fail ON booking_status_requests").update();
         db.sql("DROP FUNCTION IF EXISTS test_forced_fail() CASCADE").update();
         db.sql("DROP SEQUENCE IF EXISTS test_forced_fail_seq").update();
     }
@@ -246,13 +273,107 @@ class ConcurrentUpdateIT extends DomainTest {
     }
 
     @Test
-    @DisplayName("Espera de trava (55P03, CannotAcquireLock) não é repetida e também sai 409 CONCURRENT_UPDATE")
+    @DisplayName("lock_timeout (55P03) ao mudar status: 409 CONCURRENT_UPDATE com corpo, SEM 2ª tentativa (o trigger roda 1 vez)")
     void lockNotAvailableIsConcurrentUpdate() {
         UUID id = houseBook(w.corte, w.p1, "2026-10-08T10:00").id();
         failNext("bookings", "UPDATE", "55P03", 5);
         assertConcurrentUpdate(statusWithKey(id, "CANCELED", UUID.randomUUID().toString()));
         assertThat(attempts()).isEqualTo(1);
         assertThat(statusInDb(id)).isEqualTo("SCHEDULED");
+        assertThat(count("SELECT count(*) FROM booking_status_requests")).isZero();
+    }
+
+    @Test
+    @DisplayName("lock_timeout (55P03) ao agendar pelo app e ao bloquear: 409 CONCURRENT_UPDATE com corpo, SEM 2ª tentativa, nada criado")
+    void lockNotAvailableOnCreateIsNotRetried() {
+        failNext("bookings", "INSERT", "55P03", 5);
+        assertConcurrentUpdate(clientCreate(UUID.randomUUID().toString(), newCode()));
+        assertThat(attempts()).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM bookings")).isZero();
+
+        failNext("blocks", "INSERT", "55P03", 5);
+        assertConcurrentUpdate(block(w.tGA, w.shopA, w.p1, "2026-10-08T14:00", "2026-10-08T15:00"));
+        assertThat(attempts()).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM blocks")).isZero();
+    }
+
+    // ------------------------------------------------------------------ 2ª tentativa lê o estado de novo
+
+    /**
+     * Roda {@code request} numa thread. A 1ª tentativa dele já leu o agendamento como SCHEDULED e
+     * fica parada no trigger de booking_status_requests (gate). Nesse meio-tempo o G-A cancela
+     * pela Casa (outra transação, confirmada). Solta o gate: a 1ª tentativa leva deadlock, e a 2ª,
+     * numa transação nova, lê o status de novo.
+     */
+    private Res withOtherAgentBetweenAttempts(UUID bookingId, java.util.concurrent.Callable<Res> request) throws Exception {
+        failNext("booking_status_requests", "INSERT", "40P01", 1, true);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try (Connection gate = dataSource.getConnection(); Statement st = gate.createStatement()) {
+            gate.setAutoCommit(true);
+            st.execute("SELECT pg_advisory_lock(" + GATE + ")");
+            Future<Res> pending = pool.submit(request);
+            waitUntilSomeoneWaitsOnGate(pending);
+            assertThat(statusInDb(bookingId)).isEqualTo("SCHEDULED");
+
+            Res other = status(w.tGA, w.shopA, bookingId, "CANCELED");
+            assertThat(other.status()).as(other.toString()).isEqualTo(200);
+
+            st.execute("SELECT pg_advisory_unlock(" + GATE + ")");
+            return pending.get(30, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private void waitUntilSomeoneWaitsOnGate(Future<Res> pending) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while (System.nanoTime() < deadline) {
+            int waiting = count("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND objid = " + GATE);
+            if (waiting > 0) {
+                return;
+            }
+            assertThat(pending.isDone()).as("o pedido terminou sem passar pelo gate").isFalse();
+            Thread.sleep(20);
+        }
+        throw new AssertionError("a 1ª tentativa não chegou no gate");
+    }
+
+    private static void assertStatusChanged(Res r) {
+        assertThat(r.status()).as(r.toString()).isEqualTo(409);
+        assertThat(r.code()).as(r.toString()).isEqualTo("STATUS_CHANGED");
+        assertThat(r.body().get("status").asInt()).isEqualTo(409);
+        assertThat(r.body().get("title").asText()).isEqualTo("O status desse horário já mudou");
+    }
+
+    @Test
+    @DisplayName("Mudar status: deadlock na 1ª tentativa, o G-A cancela no meio-tempo, a 2ª (transação nova) relê e dá 409 STATUS_CHANGED, não CONCURRENT_UPDATE")
+    void statusRetryRereadsState() throws Exception {
+        UUID id = houseBook(w.corte, w.p1, "2026-10-08T10:00").id();
+        clock.setSp("2026-10-08T10:10:00");
+        String key = UUID.randomUUID().toString();
+        Res r = withOtherAgentBetweenAttempts(id, () -> statusWithKey(id, "COMPLETED", key));
+        assertStatusChanged(r);
+        // 1ª tentativa (deadlock), o cancelamento do G-A e a 2ª tentativa passaram pelo trigger.
+        assertThat(attempts()).isEqualTo(3);
+        assertThat(statusInDb(id)).isEqualTo("CANCELED");
+        assertThat(count("SELECT count(*) FROM bookings WHERE id = '" + id + "' AND canceled_by = 'STAFF' AND completed_at IS NULL"))
+                .isEqualTo(1);
+        // Só a chave do G-A ficou: a do pedido recusado voltou nas duas tentativas.
+        assertThat(count("SELECT count(*) FROM booking_status_requests WHERE idempotency_key = '" + key + "'")).isZero();
+        assertThat(count("SELECT count(*) FROM booking_status_requests")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Cliente cancela: deadlock na 1ª tentativa, a Casa cancela no meio-tempo, a 2ª (transação nova) relê e dá 409 STATUS_CHANGED")
+    void clientCancelRetryRereadsState() throws Exception {
+        String code = newCode();
+        UUID id = clientBook(w.shopA, w.corte, w.p1, "2026-10-08T12:00", T1, code).id();
+        String key = UUID.randomUUID().toString();
+        Res r = withOtherAgentBetweenAttempts(id, () -> clientCancel(code, id, key));
+        assertStatusChanged(r);
+        assertThat(attempts()).isEqualTo(3);
+        assertThat(count("SELECT count(*) FROM bookings WHERE id = '" + id + "' AND canceled_by = 'STAFF'")).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM booking_status_requests WHERE idempotency_key = '" + key + "'")).isZero();
     }
 
     @Test
