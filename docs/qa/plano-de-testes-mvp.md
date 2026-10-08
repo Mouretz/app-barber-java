@@ -66,6 +66,7 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
 - **Ordem dos erros com aparelho e telefone presos a outros:** quando um aparelho preso a um telefone (ex.: o do João) manda um telefone preso a outro aparelho (ex.: o do Rafael), vem 409 `DEVICE_PHONE_MISMATCH`, e não `PHONE_ON_OTHER_DEVICE`: o servidor confere o código do aparelho antes do telefone (confirmado pelo Back-end e escrito no contrato). (CT-04-25)
 - **Código mal formado:** `X-Client-Code` fora do formato UUID dá 401 (está no contrato). (CT-04-24)
 - **Cliente novo (sem 1º agendamento aceito):** vê "Você ainda não tem horários" e nunca uma tela de erro. O app não chama `GET /me/bookings` antes de o primeiro agendamento dar certo e mostra esse texto sozinho. O servidor continua dando 401 pra qualquer código que não conhece (regra única). (CT-15-05 a CT-15-09)
+- **Aparelho desconectado (401 depois da liberação):** quando qualquer rota com `X-Client-Code` passa a dar 401 depois de o gerente liberar o aparelho, o app mostra um aviso curto com o texto exato "Este aparelho foi desconectado pela barbearia.", uma vez só. Depois apaga o código e volta pro estado de cliente novo: Início com "Você ainda não tem horários", campo de telefone livre, nenhuma chamada a `/me/bookings` e nenhuma tela de erro. O próximo agendamento aceito gera um código novo. (CT-17-29 a CT-17-32, CT-09-12)
 - **Limite de 2 horários futuros:** vale só pro que é marcado pelo app e soma todas as barbearias. (CT-01-19 a CT-01-22, CT-01-27, CT-01-28, CT-00-42)
 - **Papel por barbearia:** a mesma pessoa pode ser gerente em uma e não ter acesso, ou ter outro papel, em outra. (CT-00-38 a CT-00-40)
 
@@ -371,8 +372,8 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-17-16 | Cliente T1 (`+5511987654321`) existe. | Normalizar `(11) 8765-4321` (10 dígitos). Cadastrar esse número na A e agendar com ele pelo app. | Vira `+551187654321` (fixo, **sem** o 9 acrescentado). É outro cliente: não junta com T1, e o limite de 2 de um não conta pro outro. | UNI + API |
 | CT-17-17 | — | Teste parametrizado do 55 com e sem `+`: `55987654321`, `(55) 98765-4321`, `+55 55 98765-4321`, `5532345678`, `551134567890`, `5511987654321` e `+5511987654321`. | `55987654321`, `(55) 98765-4321` e `+55 55 98765-4321` viram `+5555987654321` (o mesmo cliente). `5532345678` vira `+555532345678`. `551134567890` vira `+551134567890`. Os dois últimos viram `+5511987654321`. | UNI |
 | CT-17-18 | G-A logado. Aparelho com K1. | Mandar T1 com máscara (`(11) 98765-4321`, `11 98765 4321`, `11.98765.4321`, `+55 (11) 98765-4321`) em todas as entradas: agendar pelo app, marcar pela Casa, balcão, cadastrar, editar a ficha e buscar. | Todas aceitas, **nunca 422 por formato**. Todas ligam ao mesmo cliente, e toda resposta traz `+5511987654321`. | API |
-| CT-17-19 | K1 (D1) preso a T1. T1 tem 1 horário futuro pelo app na A. G-A logado. | Na ficha de T1 na A, G-A toca em "Liberar aparelho" (`POST …/clients/{clientId}/release-device`). Logo depois, com K1: listar Meus horários, cancelar o horário e agendar outro. | Liberação aceita. **K1 para de valer na hora:** as 3 chamadas dão 401, sem nenhum dado. O horário futuro continua `agendado` (mesmo id, horário e profissional) e continua na agenda da Casa. | API + INT |
-| CT-17-20 | Depois do CT-17-19 (T1 sem aparelho, com 1 futuro). | D2 (K2) agenda com T1. Listar Meus horários com K2. Depois, com K2, tentar um 3º horário futuro. Por fim, D3 (K3) agenda com T1. | O agendamento de D2 é aceito, e K2 fica preso a T1. Meus horários de K2 mostra o horário antigo e o novo. O 3º dá `BOOKING_LIMIT_REACHED`, porque o horário antigo conta no limite. D3 leva 409 `PHONE_ON_OTHER_DEVICE`. | API |
+| CT-17-19 | K1 (D1) preso a T1. T1 tem 1 horário futuro pelo app na A. G-A logado. | Na ficha de T1 na A, G-A toca em "Liberar aparelho" (`POST …/clients/{clientId}/release-device`). Logo depois, com K1: listar Meus horários, cancelar o horário e agendar outro. | Liberação aceita. **K1 para de valer na hora:** as 3 chamadas dão 401, sem nenhum dado (no app de D1, o aviso e a volta ao estado de cliente novo estão no CT-17-29). O horário futuro continua `agendado` (mesmo id, horário e profissional) e continua na agenda da Casa. | API + INT |
+| CT-17-20 | Depois do CT-17-19 (T1 sem aparelho, com 1 futuro). | D2 (K2) agenda com T1 (D1 voltando com código novo depois do aviso é o CT-17-31). Listar Meus horários com K2. Depois, com K2, tentar um 3º horário futuro. Por fim, D3 (K3) agenda com T1. | O agendamento de D2 é aceito, e K2 fica preso a T1. Meus horários de K2 mostra o horário antigo e o novo. O 3º dá `BOOKING_LIMIT_REACHED`, porque o horário antigo conta no limite. D3 leva 409 `PHONE_ON_OTHER_DEVICE`. | API |
 | CT-17-21 | K1 preso a T1, que tem ficha na A e agendamento pelo app na A. | Chamar `POST …/clients/{clientId}/release-device` da ficha de T1 na A com P1 (profissional da A que não é gerente) e com G-B (gerente da B, sem vínculo com a A). Depois com G-A. | P1: **403**. G-B: **404** (regra geral do contrato pra quem não tem vínculo com a barbearia). Nos dois casos, K1 continua valendo. G-A: aceito. A rota entra na varredura de papel do CT-00-24 e na de multi-tenant do CT-00-28. | API |
 | CT-17-22 | App Casa, mock e servidor. | Abrir a ficha de um cliente logado como gerente e como profissional que não é gerente. | O botão "Liberar aparelho" aparece só pro gerente. Ao tocar, a liberação é feita e a tela mostra que deu certo. O profissional não vê o botão. | FLU |
 | CT-17-23 | K1 preso a T1. | **Concorrência real:** G-A libera o aparelho de T1 e D1 agenda com K1 ao mesmo tempo. Repetir 20 vezes. | No fim, K1 sempre está inválido. Nenhum agendamento é gravado com K1 depois da liberação. Se o agendamento de D1 entrou antes, ele continua `agendado` e aparece pro próximo aparelho (CT-17-20). | INT |
@@ -381,6 +382,10 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-17-26 | K1 preso a T1. Na A, a ficha de T1 foi criada só no balcão (com o telefone de T1 digitado por outra pessoa), sem nenhum agendamento pelo app na A. | G-A chama a liberação pela ficha da A. | 409 `DEVICE_RELEASE_NOT_ALLOWED`. K1 continua valendo, e nada muda nos horários de T1. | API |
 | CT-17-27 | K1 preso a T1, com 1 agendamento feito pelo app na A. | G-A chama a liberação pela ficha da A. | aceito, e K1 para de valer (como no CT-17-19). | API |
 | CT-17-28 | K1 preso a T1. T1 tem agendamento pelo app só na A e uma ficha na B criada no balcão (nunca agendou pelo app na B). | G-B chama a liberação pela ficha da B. | 409 `DEVICE_RELEASE_NOT_ALLOWED`. K1 continua valendo, inclusive nos horários da A. | API |
+| CT-17-29 | App Cliente em D1 com K1 preso a T1 e 1 horário futuro. G-A libera o aparelho de T1. | Em D1, abrir o Início (a chamada a `/me/bookings` dá 401). Fechar o aviso. Fechar à força e abrir de novo; mandar o app pro fundo e voltar. | Aparece um aviso curto com o texto exato "Este aparelho foi desconectado pela barbearia.", uma vez só. Depois dele: Início com "Você ainda não tem horários", campo de telefone livre e nenhuma tela de erro. Ao reabrir ou voltar do fundo, o aviso **não** aparece de novo. | FLU + MAN |
+| CT-17-30 | Igual ao CT-17-29, com o cliente HTTP trocado por um fake que registra as chamadas. | Depois do aviso, conferir o armazenamento do aparelho e o registro do fake. Navegar pelo Início e Meus horários, puxar pra atualizar e reabrir o app. | O código K1 foi apagado do aparelho. Nenhuma chamada sai com K1 depois do 401 (sem nova tentativa) e nenhuma chamada a `/me/bookings` sai até o próximo agendamento aceito. | FLU |
+| CT-17-31 | Depois do CT-17-29 (D1 sem código; T1 sem aparelho, com 1 futuro; T3 sem aparelho). | Rodada 1: em D1, agendar com T1. Rodada 2 (do mesmo ponto de partida): em D1, agendar com T3. | As 2 rodadas são aceitas, e o app gera um código novo (diferente de K1) que fica preso ao telefone usado. Com T1, Meus horários mostra o horário antigo e o novo. Com T3, mostra só o novo. K1 continua dando 401. | API + FLU |
+| CT-17-32 | D1 com K1 preso a T1 e 1 horário futuro. G-A libera o aparelho de T1. Fake do cliente HTTP. | Em rodadas separadas, a 1ª chamada com K1 depois da liberação é: listar Meus horários, cancelar o horário futuro e agendar um novo. Numa 4ª rodada, 2 chamadas com K1 dão 401 ao mesmo tempo (Início e Meus horários). | Em todas, o mesmo tratamento: aviso "Este aparelho foi desconectado pela barbearia." uma vez só (também na 4ª rodada), código apagado, estado de cliente novo e nenhuma tela de erro. O cancelamento e o agendamento com K1 não acontecem. | FLU |
 
 ### CT-10 · (10) Preços, serviços e profissionais
 
@@ -450,6 +455,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-09-09 | — | Comparar com a regra escrita e com o protótipo em `/workspace/cortaaqui-grok/`. | Fundo preto, cards cinza, menu de linha fina, mesma hierarquia de texto. Onde o print e a regra diferem, vale a regra. | MAN |
 | CT-09-10 | Fonte do Android em tamanho máximo. Celular pequeno (360 dp). | Navegar pelas telas. | Nenhum texto cortado nem botão escondido. | MAN |
 | CT-09-11 | Tema e menu de baixo. | Teste de contraste das abas inativas (texto e ícone) sobre `#000000` e do placeholder do campo sobre o fundo do campo `#1C1C1E`. Procurar `#636366` no código. | Abas inativas e placeholder em `#8E8E93`: 6,44:1 e 5,21:1, os dois ≥ 4,5:1. `#636366` não aparece (dava 3,51:1 e 2,84:1, os dois reprovam). Se o campo ficar sobre `#2C2C2E`, o placeholder usa `#AEAEB2`. | FLU |
+| CT-09-12 | Tema e o aviso "Este aparelho foi desconectado pela barbearia.". | Incluir o par texto/fundo do aviso (e o do botão de fechar, se tiver) no teste de contraste do CT-09-02. | Todos ≥ 4,5:1 (AA texto normal). | FLU |
 
 ### CT-13 · (13) Nome CortaAqui
 
@@ -637,7 +643,7 @@ Riscos conhecidos que a regra aprovada deixa de propósito. Não são perguntas;
 
 ## Perguntas em aberto
 
-Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10); `DEVICE_PHONE_MISMATCH` antes de `PHONE_ON_OTHER_DEVICE` e 401 pro `X-Client-Code` mal formado (Back-end e contrato, 07/10); cliente novo vê "Você ainda não tem horários", sem chamar `/me/bookings` antes do 1º agendamento aceito (decisão de 07/10).
+Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10); `DEVICE_PHONE_MISMATCH` antes de `PHONE_ON_OTHER_DEVICE` e 401 pro `X-Client-Code` mal formado (Back-end e contrato, 07/10); cliente novo vê "Você ainda não tem horários", sem chamar `/me/bookings` antes do 1º agendamento aceito (decisão de 07/10); aparelho desconectado depois da liberação mostra "Este aparelho foi desconectado pela barbearia." e volta ao estado de cliente novo (decisão de 07/10).
 
 Estas continuam vagas demais para virar um teste com resultado esperado claro. Os casos que dependem delas estão marcados acima.
 
@@ -649,13 +655,12 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 **Cliente e aparelho**
 
 4. **Intro:** aparece só na primeira abertura ou sempre? (CT-14-04)
-5. **Código liberado:** o que o app mostra quando o código do aparelho passa a dar 401 depois de o gerente liberar o aparelho? Volta pro estado de cliente novo, com o texto "Você ainda não tem horários" e o campo de telefone livre, ou mostra outra mensagem? (CT-17-19, CT-17-20)
 
 **Casa**
 
-6. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
-7. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
-8. **Mesmo identificador de pedido com dados diferentes:** devolve o primeiro resultado ou dá erro? (CT-00-08)
+5. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
+6. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
+7. **Mesmo identificador de pedido com dados diferentes:** devolve o primeiro resultado ou dá erro? (CT-00-08)
 
 ## 11. Resumo dos casos
 
@@ -670,11 +675,11 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 | CT-02 | (2) Agenda por profissional | 23 |
 | CT-06 | (6) Balcão e marcação pela Casa | 16 |
 | CT-07 | (7) Expediente e folgas | 7 |
-| CT-17 | (17) Clientes | 28 |
+| CT-17 | (17) Clientes | 32 |
 | CT-10 | (10) Preços, serviços e profissionais | 9 |
 | CT-08 | (8) Caixa do mês | 15 |
 | CT-20 | (20) Gerência | 10 |
-| CT-09 | (9) Visual | 11 |
+| CT-09 | (9) Visual | 12 |
 | CT-13 | (13) Nome CortaAqui | 3 |
 | CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 48 |
-| **Total** | | **253** |
+| **Total** | | **258** |
