@@ -1,6 +1,7 @@
 name: CortaAqui APK
 
-# Gera os dois APKs (Cliente e Casa) em modo mock, sem servidor.
+# Gera os dois APKs (Cliente e Casa) em modo mock, sem servidor, e também os dois em
+# modo api (só artifact, sem release) pra QA conferir o que some fora do mock.
 # - Em PR que mexe no app: só gera e anexa como artifact (prova que o build fecha).
 # - Na main ou rodando na mão: também publica uma release com os dois arquivos.
 on:
@@ -42,16 +43,29 @@ jobs:
       - name: APK Casa
         run: flutter build apk --release --flavor casa -t lib/main_casa.dart --dart-define=DATA_SOURCE=mock
 
-      - name: Juntar os arquivos
+      - name: Juntar os arquivos mock
         run: |
-          mkdir -p ../dist
+          mkdir -p ../dist ../dist-api
           cp build/app/outputs/flutter-apk/app-cliente-release.apk ../dist/CortaAqui-cliente.apk
           cp build/app/outputs/flutter-apk/app-casa-release.apk ../dist/CortaAqui-casa.apk
+
+      - name: APKs em modo api (sem release)
+        run: |
+          flutter build apk --release --flavor cliente -t lib/main_cliente.dart --dart-define=DATA_SOURCE=api
+          cp build/app/outputs/flutter-apk/app-cliente-release.apk ../dist-api/CortaAqui-cliente-api.apk
+          flutter build apk --release --flavor casa -t lib/main_casa.dart --dart-define=DATA_SOURCE=api
+          cp build/app/outputs/flutter-apk/app-casa-release.apk ../dist-api/CortaAqui-casa-api.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: cortaaqui-apks
           path: dist/*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cortaaqui-apks-api
+          path: dist-api/*.apk
           if-no-files-found: error
 
       - name: Publicar release
