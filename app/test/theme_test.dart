@@ -35,6 +35,8 @@ void main() {
       'preto no botão amarelo': (t.onAccent, t.accent),
       'amarelo no fundo': (t.accent, t.bg),
       'amarelo no card': (t.accent, t.surface),
+      'aba inativa no fundo': (t.navInactive, t.bg),
+      'placeholder no campo': (t.inputPlaceholder, t.surface),
     };
     pares.forEach((nome, par) {
       test(nome, () {
@@ -59,5 +61,13 @@ void main() {
   test('chip ativo não usa o amarelo', () {
     final theme = buildCortaTheme();
     expect(theme.chipTheme.selectedColor, isNot(t.accent));
+  });
+
+  test('#636366 saiu do tema', () {
+    const proibida = Color(0xFF636366);
+    expect(t.navInactive, isNot(proibida));
+    expect(t.inputPlaceholder, isNot(proibida));
+    expect(t.navInactive, const Color(0xFF8E8E93));
+    expect(t.inputPlaceholder, const Color(0xFF8E8E93));
   });
 }

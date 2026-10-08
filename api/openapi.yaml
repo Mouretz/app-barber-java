@@ -37,9 +37,18 @@ info:
     - Papéis: o gerente faz tudo na barbearia. O profissional que não é gerente vê e mexe
       só na própria agenda (marcar, concluir, falta, cancelar, bloquear) e vê só o que ele
       ganhou no mês. Expediente, folgas, serviços, preços, %, outros profissionais e o caixa
-      da casa são só do gerente (403 `FORBIDDEN`). Na agenda, profissional recebe só a dele.
-    - Clientes: um cadastro global por telefone (é ele que tem o código do aparelho) e uma
-      ficha por barbearia. A Casa só vê e busca as fichas da própria barbearia.
+      da casa são só do gerente (403 `FORBIDDEN`). Pedir a agenda de outro profissional
+      dá 403.
+    - Clientes: um cadastro global por telefone e uma ficha por barbearia. A Casa só vê e
+      busca as fichas da própria barbearia. Balcão sem telefone cria só a ficha.
+    - Código do aparelho (`X-Client-Code`): o app gera o código (UUID v4) e guarda no
+      aparelho. O servidor **nunca** devolve código. O código fica preso ao telefone quando
+      o primeiro agendamento entra (recusado não prende nada). Um aparelho tem um telefone
+      só, e um telefone tem um aparelho só. A liberação na troca de celular é do gerente e
+      vale para todas as barbearias.
+    - Pedido repetido: cancelar, mudar status e agendar levam `Idempotency-Key`. Mesma
+      chave devolve o mesmo resultado. Chave nova num agendamento que já saiu de
+      `SCHEDULED` dá 409 `STATUS_CHANGED`, e a tela recarrega.
 servers:
   - url: http://localhost:8080/api/v1
     description: Local (docker compose)
@@ -169,9 +178,13 @@ paths:
       operationId: createClientBooking
       summary: Cliente agenda um horário (história 1)
       description: |
-        Sem `X-Client-Code` (primeiro agendamento no aparelho), o servidor cria ou acha o
-        cliente pelo telefone e devolve `clientCode` uma única vez. O app guarda esse código
-        no aparelho e manda em `X-Client-Code` dali em diante.
+        O app sempre manda o próprio `X-Client-Code` e o `client` (nome e telefone). O
+        servidor cria ou acha o cliente pelo telefone normalizado. Se o telefone ainda não
+        tem aparelho, o código fica preso a ele quando o agendamento entra. Recusas:
+        - telefone preso a outro código: 409 `PHONE_ON_OTHER_DEVICE` (o app mostra "Esse
+          telefone já está em outro aparelho. Fale com a barbearia.");
+        - código preso a outro telefone: 409 `DEVICE_PHONE_MISMATCH` (o app trava o campo
+          de telefone depois do 1º agendamento, então só chega aqui por chamada direta).
 
         Regras: no mínimo 30 minutos de antecedência (`TOO_SOON`), dentro do expediente
         (`OUTSIDE_WORKING_HOURS`), até hoje + 13 (`DATE_OUT_OF_RANGE`), sem conflito
@@ -179,7 +192,7 @@ paths:
         somando todas as barbearias (`BOOKING_LIMIT_REACHED`). O que a Casa marca não conta.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/ClientCodeOptional'
+        - $ref: '#/components/parameters/ClientCode'
       requestBody:
         required: true
         content:
@@ -190,15 +203,19 @@ paths:
           description: Agendado
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ClientBookingCreated' }
+              schema: { $ref: '#/components/schemas/Booking' }
         '200':
           description: Mesma `Idempotency-Key` de antes; devolve o agendamento original
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ClientBookingCreated' }
+              schema: { $ref: '#/components/schemas/Booking' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: '`SLOT_TAKEN`, `PHONE_ON_OTHER_DEVICE` ou `DEVICE_PHONE_MISMATCH`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /me/bookings:
     get:
@@ -228,18 +245,25 @@ paths:
     post:
       tags: [Cliente]
       operationId: cancelMyBooking
-      summary: Cliente cancela, até 2 horas antes (história 4)
+      summary: Cliente cancela com 2 horas ou mais de antecedência (história 4)
+      description: |
+        Exatamente 2h antes ainda pode; 2h menos 1 s já dá 422 `CANCEL_WINDOW_CLOSED`.
+        Mesma `Idempotency-Key` devolve o mesmo resultado. Chave nova num agendamento que
+        já não está `SCHEDULED` dá 409 `STATUS_CHANGED`.
       security: [{ clientCode: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
-          description: Cancelado (repetir em um já cancelado devolve 200 igual)
+          description: Cancelado
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Booking' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StatusChanged' }
         '422':
-          description: '`CANCEL_WINDOW_CLOSED` ou `INVALID_STATUS_TRANSITION`'
+          description: '`CANCEL_WINDOW_CLOSED`'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -261,7 +285,9 @@ paths:
         - { name: date, in: query, required: true, schema: { type: string, format: date } }
         - name: professionalId
           in: query
-          description: Filtra um profissional. Sem filtro, vêm todos os ativos.
+          description: |
+            Gerente: filtra um profissional; sem filtro, vêm todos os ativos. Profissional
+            que não é gerente: sem filtro recebe só a dele; pedir outro profissional dá 403.
           schema: { type: string, format: uuid }
       responses:
         '200':
@@ -270,6 +296,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Agenda' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /barbershops/{barbershopId}/staff/bookings:
     parameters:
@@ -280,7 +307,8 @@ paths:
       summary: Marcar pela casa, inclusive horário de balcão (histórias 2 e 6)
       description: |
         `clientId` para cliente já cadastrado, ou `newClient` para cadastrar na hora.
-        `source = COUNTER` é o atendimento de balcão. Na marcação pela Casa (STAFF ou
+        `source = COUNTER` é o atendimento de balcão: nome obrigatório e telefone opcional.
+        Sem telefone, cria só a ficha desta barbearia. Em `STAFF`, telefone obrigatório. Na marcação pela Casa (STAFF ou
         COUNTER) vale o limite de 14 dias (`DATE_OUT_OF_RANGE`), mas não valem os 30 min de
         antecedência nem o limite de 2 horários do cliente: dá para marcar o horário de
         30 min que está em andamento agora, se estiver livre. Horário que já terminou
@@ -319,14 +347,17 @@ paths:
       operationId: changeBookingStatus
       summary: Concluir, marcar falta ou cancelar (história 2)
       description: |
-        Só sai de `SCHEDULED`. Pedir o mesmo status que já está devolve 200 sem mudar nada.
-        Pedir outro status a partir de um final devolve 422 `INVALID_STATUS_TRANSITION`.
+        Só sai de `SCHEDULED`. Mesma `Idempotency-Key` devolve o mesmo resultado (mesmo
+        status e mesma % gravada). Chave nova num agendamento que já não está `SCHEDULED`
+        dá 409 `STATUS_CHANGED`, e a tela recarrega.
         `COMPLETED` e `NO_SHOW` só a partir do horário de início (antes disso, 422
         `TOO_EARLY`). `CANCELED` pela Casa vale a qualquer hora antes de concluir, sem a
         regra das 2h, e grava `canceledBy = STAFF` (o cliente vê "cancelado pela barbearia").
         Ao concluir, o servidor grava `shopPercent` e `professionalPercent` vigentes do
         profissional no agendamento (história 20).
       security: [{ staffToken: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -351,7 +382,8 @@ paths:
       summary: Bloquear um intervalo livre (história 2)
       description: |
         Intervalo dentro de um mesmo dia, com início e fim na grade de 30 min (30 min é o
-        menor). Profissional só bloqueia a própria agenda; gerente, qualquer uma.
+        menor). `endAt` às 00:00 do dia seguinte conta como fim do mesmo dia; passar disso
+        dá 422. Profissional só bloqueia a própria agenda; gerente, qualquer uma.
       security: [{ staffToken: [] }]
       requestBody:
         required: true
@@ -653,6 +685,36 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /barbershops/{barbershopId}/clients/{clientId}/release-device:
+    parameters:
+      - $ref: '#/components/parameters/BarbershopId'
+      - name: clientId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Clientes]
+      operationId: releaseClientDevice
+      summary: Liberar aparelho na troca de celular (só gerente)
+      description: |
+        Botão "Liberar aparelho" na ficha do cliente. O código preso ao telefone para de
+        valer na hora (as chamadas com ele dão 401) em todas as barbearias. Os horários
+        futuros continuam, e o próximo aparelho que agendar com o telefone fica preso a ele
+        e passa a ver esses horários. Liberar um telefone sem aparelho devolve 204 igual.
+        Trava de segurança: só libera telefone que tem pelo menos um agendamento feito pelo
+        app nesta barbearia; ficha só de balcão dá 409 `DEVICE_RELEASE_NOT_ALLOWED`.
+        Profissional que não é gerente: 403. Cliente de outra barbearia: 404.
+      security: [{ staffToken: [] }]
+      responses:
+        '204': { description: Liberado }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`DEVICE_RELEASE_NOT_ALLOWED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
   # ---------------------------------------------------------------- Serviços
   /barbershops/{barbershopId}/services:
     parameters:
@@ -815,7 +877,7 @@ components:
       type: apiKey
       in: header
       name: X-Client-Code
-      description: Código do cliente guardado no aparelho no primeiro agendamento.
+      description: Código gerado pelo app (UUID v4) e guardado no aparelho. O servidor nunca devolve.
 
   parameters:
     BarbershopId:
@@ -837,14 +899,14 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: UUID gerado pelo app por tentativa de agendamento. Repetir a chave não cria outro.
+      description: UUID gerado pelo app por ação (agendar, cancelar, mudar status). Repetir a chave devolve o mesmo resultado.
       schema: { type: string, format: uuid }
-    ClientCodeOptional:
+    ClientCode:
       name: X-Client-Code
       in: header
-      required: false
-      description: Ausente no primeiro agendamento do aparelho. Código inválido devolve 401.
-      schema: { type: string, minLength: 16, maxLength: 64 }
+      required: true
+      description: Código do aparelho, gerado pelo app. Código liberado pelo gerente devolve 401.
+      schema: { type: string, format: uuid }
     Month:
       name: month
       in: query
@@ -870,6 +932,11 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
       description: '`SLOT_TAKEN`: o horário bate com agendamento ou bloqueio do mesmo profissional'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    StatusChanged:
+      description: '`STATUS_CHANGED`: o agendamento já saiu de `SCHEDULED` por outro pedido'
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -909,7 +976,10 @@ components:
         - OUTSIDE_WORKING_HOURS
         - BOOKING_LIMIT_REACHED
         - CANCEL_WINDOW_CLOSED
-        - INVALID_STATUS_TRANSITION
+        - STATUS_CHANGED
+        - PHONE_ON_OTHER_DEVICE
+        - DEVICE_PHONE_MISMATCH
+        - DEVICE_RELEASE_NOT_ALLOWED
         - PHONE_IN_USE
         - EMAIL_IN_USE
         - TIME_OFF_HAS_BOOKINGS
@@ -1047,7 +1117,7 @@ components:
     TimeRange:
       type: object
       required: [start, end]
-      description: Hora local de Brasília, `HH:mm`. `end` maior que `start`.
+      description: Hora local de Brasília, `HH:mm`. `end` maior que `start`, ou `end = 00:00`, que é meia-noite (fim do dia).
       properties:
         start: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '09:00' }
         end: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '12:00' }
@@ -1136,11 +1206,11 @@ components:
           properties:
             id: { type: string, format: uuid }
             name: { type: string }
-            phone: { type: string, pattern: '^\+55\d{10,11}$', description: Só aparece para a casa. }
+            phone: { type: string, pattern: '^\+55\d{10,11}$', nullable: true, description: Só aparece para a casa. Null no balcão sem telefone. }
         priceCents: { type: integer, minimum: 0, description: Gravado na criação. }
         shopPercent: { type: integer, minimum: 0, maximum: 100, nullable: true, description: Gravado ao concluir; só a casa vê. }
         professionalPercent: { type: integer, minimum: 0, maximum: 100, nullable: true, description: Gravado ao concluir; só a casa vê. }
-        canCancel: { type: boolean, description: 'App Cliente: true se SCHEDULED e faltam mais de 2h.' }
+        canCancel: { type: boolean, description: 'App Cliente: true se SCHEDULED e faltam 2h ou mais.' }
         canceledBy: { type: string, enum: [CLIENT, STAFF], nullable: true }
         note: { type: string, maxLength: 200, nullable: true }
         createdAt: { type: string, format: date-time }
@@ -1158,23 +1228,12 @@ components:
         email: { type: string, format: email, maxLength: 120 }
     ClientBookingRequest:
       type: object
-      required: [serviceId, professionalId, startAt]
+      required: [serviceId, professionalId, startAt, client]
       properties:
         serviceId: { type: string, format: uuid }
         professionalId: { type: string, format: uuid }
         startAt: { type: string, format: date-time, description: Um dos `slots` de `/availability`. }
-        client:
-          allOf: [{ $ref: '#/components/schemas/ClientInfo' }]
-          description: Obrigatório sem `X-Client-Code`; ignorado com ele.
-    ClientBookingCreated:
-      type: object
-      required: [booking]
-      properties:
-        booking: { $ref: '#/components/schemas/Booking' }
-        clientCode:
-          type: string
-          nullable: true
-          description: Só no primeiro agendamento do aparelho. Guardar e nunca mostrar na tela.
+        client: { $ref: '#/components/schemas/ClientInfo' }
     StaffBookingRequest:
       type: object
       required: [serviceId, professionalId, startAt, source]
@@ -1186,8 +1245,16 @@ components:
           type: string
           enum: [STAFF, COUNTER]
         clientId: { type: string, format: uuid, description: 'Use este OU `newClient`.' }
-        newClient: { $ref: '#/components/schemas/ClientInfo' }
+        newClient: { $ref: '#/components/schemas/StaffNewClient' }
         note: { type: string, maxLength: 200 }
+    StaffNewClient:
+      type: object
+      required: [name]
+      description: Telefone obrigatório em `STAFF` e opcional em `COUNTER` (422 se faltar em `STAFF`).
+      properties:
+        name: { type: string, minLength: 2, maxLength: 80 }
+        phone: { type: string, minLength: 10, maxLength: 20, description: Normalizado como em ClientInfo. }
+        email: { type: string, format: email, maxLength: 120 }
     StatusChangeRequest:
       type: object
       required: [status]
@@ -1242,7 +1309,8 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        phone: { type: string, pattern: '^\+55\d{10,11}$', example: '+5511987654321' }
+        phone: { type: string, pattern: '^\+55\d{10,11}$', nullable: true, example: '+5511987654321', description: Null na ficha de balcão sem telefone. }
+        hasDevice: { type: boolean, description: true se o telefone tem aparelho preso; o app Casa mostra "Liberar aparelho" só pro gerente. }
         email: { type: string, format: email, nullable: true }
         createdAt: { type: string, format: date-time }
     ClientDetail:
