@@ -15,6 +15,7 @@ Agendamento para barbearias, com dois apps e um servidor:
 | `app/lib/theme/` | Pacote de tema (cores, fontes Inter, menu de linha fina). Telas importam `theme/theme.dart`. |
 | `server/` | Spring Boot 3.4 / Java 21 / Flyway / Postgres 17. |
 | `docs/` | Documentos do time (ex.: plano de testes da QA). |
+| `docs/versoes/CHANGELOG.md` | Notas de versão: o que mudou em cada APK. |
 
 ## App
 
@@ -40,6 +41,8 @@ Workflow **CortaAqui APK** (aba Actions). Em PR que mexe no `app/` ele só gera 
 artifact. Na `main` (ou rodando na mão em Actions > CortaAqui APK > Run workflow) também
 publica uma release com `CortaAqui-cliente.apk` e `CortaAqui-casa.apk`, em
 [Releases](https://github.com/Mouretz/app-barber-java/releases).
+
+O que entrou em cada geração está em [docs/versoes/CHANGELOG.md](docs/versoes/CHANGELOG.md).
 
 ## Servidor
 
