@@ -156,6 +156,31 @@ class RegrasPoPlanoIT extends DomainTest {
         assertThat(corte).last().isEqualTo("18:00");
     }
 
+    private Res putWindows(List<Object> windows) {
+        return send(req(HttpMethod.PUT, "/barbershops/" + w.shopA + "/professionals/" + w.p1 + "/working-hours").token(w.tGA)
+                .body(map("days", List.of(map("weekday", "TUE", "windows", windows)))));
+    }
+
+    @Test
+    @DisplayName("CT-07-05 / N1: fim antes do início ou igual (21:00–21:00) dá 422 em days[i].windows[j].end; hora inválida aponta .start ou .end; o expediente antigo fica")
+    void ct0705WindowFieldsFollowContract() {
+        String base = "days[0].windows[0]";
+        assertValidation(putDay("TUE", "21:00", "21:00"), base + ".end");
+        assertValidation(putDay("TUE", "18:00", "10:00"), base + ".end");
+        assertValidation(putDay("TUE", "10:00", "10:00"), base + ".end");
+        assertValidation(putDay("TUE", "8h", "18:00"), base + ".start");
+        assertValidation(putDay("TUE", "08:00", "25:00"), base + ".end");
+        Res both = putDay("TUE", "xx", "yy");
+        assertThat(both.status()).isEqualTo(422);
+        assertThat(fields(both)).containsExactly(base + ".start", base + ".end");
+        assertValidation(putWindows(List.of(map("start", null, "end", "18:00"))), base + ".start");
+        assertValidation(putWindows(List.of(map("start", "08:00"))), base + ".end");
+        // Na 2ª janela do dia, o índice é o do pedido.
+        assertValidation(putWindows(List.of(map("start", "08:00", "end", "12:00"), map("start", "15:00", "end", "13:00"))),
+                "days[0].windows[1].end");
+        assertOldHoursKept();
+    }
+
     @Test
     @DisplayName("CT-02-21: expediente com fim 00:00 é recusado e o de 21:00 fica; o bloqueio 23:30–00:00 continua aceito")
     void ct0221MidnightOnlyForBlocks() {
