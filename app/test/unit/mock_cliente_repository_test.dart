@@ -102,12 +102,20 @@ void main() {
       },
     );
 
-    test('CT-01-06 fora da grade (10:15) é recusado', () async {
-      await expectLater(
-        book('2026-10-07T10:15:00'),
-        throwsA(problem(ErrorCode.validationError)),
-      );
-    });
+    test(
+      'CT-01-06 fora da grade (10:15): 422 VALIDATION_ERROR no startAt',
+      () async {
+        await expectLater(
+          book('2026-10-07T10:15:00'),
+          throwsA(
+            isA<ApiProblem>()
+                .having((p) => p.code, 'code', ErrorCode.validationError)
+                .having((p) => p.status, 'status', 422)
+                .having((p) => p.hasField('startAt'), 'campo startAt', isTrue),
+          ),
+        );
+      },
+    );
 
     test('CT-01-07 / CT-01-08 / CT-01-09 expediente', () async {
       await book('2026-10-07T18:30:00');
@@ -350,9 +358,10 @@ void main() {
       'CT-04-01 próximos em ordem crescente e histórico decrescente',
       () async {
         final seed = MockSeed.build(clock.now());
+        const code = 'codigo-do-joao';
+        seed.codes[code] = MockSeed.joaoId;
         repo = MockClienteRepository(clock: clock, initialState: seed);
-        final first = await book('2026-10-12T10:00:00', phone: '11987654321');
-        final code = first.clientCode!;
+        await book('2026-10-12T10:00:00', code: code);
         final up = await repo.listMyBookings(clientCode: code);
         expect(up, hasLength(2));
         expect(up.first.startAt.isBefore(up.last.startAt), isTrue);
@@ -483,6 +492,175 @@ void main() {
     });
   });
 
+  group('CT-04-08 só telefone não basta', () {
+    late MockState seed;
+    setUp(() {
+      seed = MockSeed.build(clock.now());
+      repo = MockClienteRepository(clock: clock, initialState: seed);
+    });
+
+    test('telefone já cadastrado, aparelho sem código: marca, mas não devolve '
+        'código', () async {
+      final codesBefore = Map.of(seed.codes);
+      final r = await book('2026-10-12T10:00:00', phone: '(11) 98765-4321');
+      expect(r.clientCode, isNull);
+      expect(seed.codes, codesBefore, reason: 'nenhum código novo');
+      final saved = seed.bookings.firstWhere((b) => b.id == r.booking.id);
+      expect(saved.client.id, MockSeed.joaoId, reason: 'mesmo cadastro');
+      expect(
+        seed.clients.where((c) => c.phone == MockSeed.joaoPhone),
+        hasLength(1),
+      );
+    });
+
+    test('qualquer jeito de escrever o número dá o mesmo resultado', () async {
+      for (final (i, phone) in [
+        '+55 11 98765-4321',
+        '5511987654321',
+        '+5511987654321',
+      ].indexed) {
+        // Cada um num repositório novo, para não bater no limite de 2.
+        seed = MockSeed.build(clock.now());
+        repo = MockClienteRepository(clock: clock, initialState: seed);
+        final r = await book('2026-10-1${2 + i}T10:00:00', phone: phone);
+        expect(r.clientCode, isNull, reason: phone);
+      }
+    });
+
+    test('pedido repetido também não devolve código', () async {
+      final a = await book('2026-10-12T10:00:00', idem: 'rep');
+      final b = await book('2026-10-12T10:00:00', idem: 'rep');
+      expect(a.clientCode, isNull);
+      expect(b.clientCode, isNull);
+      expect(b.booking.id, a.booking.id);
+    });
+
+    test('telefone novo recebe o código uma vez só; depois, sem o código, '
+        'não recebe de novo', () async {
+      final first = await book('2026-10-12T10:00:00', phone: '31998765432');
+      expect(first.clientCode, isNotNull);
+      final again = await book(
+        '2026-10-13T10:00:00',
+        phone: '+55 (31) 99876-5432',
+      );
+      expect(again.clientCode, isNull);
+      expect(again.booking.client.id, first.booking.client.id);
+    });
+
+    test('o horário marcado sem código conta no limite do telefone', () async {
+      // João já tem 1 futuro pelo app no seed.
+      await book('2026-10-12T10:00:00', phone: '11987654321');
+      await expectLater(
+        book('2026-10-13T10:00:00', phone: '(11) 98765-4321'),
+        throwsA(problem(ErrorCode.bookingLimitReached)),
+      );
+    });
+
+    test('listar ou cancelar só com o telefone é recusado', () async {
+      for (final phone in [
+        MockSeed.joaoPhone,
+        '11987654321',
+        '(11) 98765-4321',
+      ]) {
+        await expectLater(
+          repo.listMyBookings(clientCode: phone),
+          throwsA(problem(ErrorCode.unauthorized)),
+        );
+        await expectLater(
+          repo.cancelMyBooking(
+            clientCode: phone,
+            bookingId: '6f1c2a10-0000-4000-8000-0000000000d1',
+          ),
+          throwsA(problem(ErrorCode.unauthorized)),
+        );
+      }
+      expect(
+        seed.bookings
+            .firstWhere((b) => b.id == '6f1c2a10-0000-4000-8000-0000000000d1')
+            .status,
+        BookingStatus.scheduled,
+      );
+    });
+  });
+
+  group('telefone no formato +55', () {
+    test('o cadastro guarda +55 + DDD + número, venha como vier', () async {
+      await book('2026-10-12T10:00:00', phone: '(21) 91234-5678');
+      await book('2026-10-13T10:00:00', phone: '5531998765432');
+      await book('2026-10-14T10:00:00', phone: '+55 41 3456-7890');
+      final s = await repo.state;
+      expect(s.clients.map((c) => c.phone), [
+        '+5521912345678',
+        '+5531998765432',
+        '+554134567890',
+      ]);
+      for (final c in s.clients) {
+        expect(c.phone, matches(RegExp(r'^\+55\d{10,11}$')));
+      }
+    });
+
+    test('o seed usa o mesmo formato', () {
+      expect(MockSeed.joaoPhone, '+5511987654321');
+      expect(MockSeed.rafaelPhone, '+5521912345678');
+    });
+
+    test('a resposta para o app Cliente não leva telefone', () async {
+      final r = await book('2026-10-12T10:00:00');
+      expect(r.booking.client.phone, isNull);
+      final s = await repo.state;
+      expect(
+        s.bookings.single.client.phone,
+        '+5511987654321',
+        reason: 'guardado para a casa',
+      );
+    });
+  });
+
+  group('DATE_OUT_OF_RANGE para listar e para marcar', () {
+    for (final (nome, dia) in [
+      ('ontem (06/10)', '2026-10-06'),
+      ('hoje + 14 (21/10)', '2026-10-21'),
+    ]) {
+      test('$nome: 422 nos dois', () async {
+        await expectLater(
+          repo.getAvailability(
+            barbershopId: shop,
+            serviceId: corte,
+            professionalId: caio,
+            date: SpDate.parse(dia),
+          ),
+          throwsA(
+            isA<ApiProblem>()
+                .having((p) => p.code, 'code', ErrorCode.dateOutOfRange)
+                .having((p) => p.status, 'status', 422),
+          ),
+        );
+        await expectLater(
+          book('${dia}T10:00:00'),
+          throwsA(
+            isA<ApiProblem>()
+                .having((p) => p.code, 'code', ErrorCode.dateOutOfRange)
+                .having((p) => p.status, 'status', 422),
+          ),
+        );
+      });
+    }
+
+    test('hoje e hoje + 13 aceitam nos dois', () async {
+      for (final dia in ['2026-10-07', '2026-10-20']) {
+        final av = await repo.getAvailability(
+          barbershopId: shop,
+          serviceId: corte,
+          professionalId: caio,
+          date: SpDate.parse(dia),
+        );
+        expect(av.slots, isNotEmpty, reason: dia);
+      }
+      final a = await book('2026-10-07T10:00:00');
+      await book('2026-10-20T10:00:00', code: a.clientCode);
+    });
+  });
+
   group('seed e persistência do mock', () {
     test(
       'CT-00-33 / CT-16-01 seed: Navalha, 2 profissionais e os 3 serviços',
@@ -510,6 +688,18 @@ void main() {
         throwsA(problem(ErrorCode.notFound)),
       );
     });
+
+    test(
+      'estado salvo de versão antiga (telefone sem +) é trocado pelo seed',
+      () async {
+        final store = MemoryMockPersistence();
+        await store.save({'version': 1, 'clients': [], 'codes': {}});
+        final r = MockClienteRepository(clock: clock, persistence: store);
+        final s = await r.state;
+        expect(s.clients.map((c) => c.phone), contains(MockSeed.joaoPhone));
+        expect((await store.load())!['version'], MockState.schemaVersion);
+      },
+    );
 
     test('CT-04-09 os dados continuam depois de fechar o app', () async {
       final store = MemoryMockPersistence();

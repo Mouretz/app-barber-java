@@ -33,6 +33,10 @@ abstract class ClienteRepository {
   /// [idempotencyKey] vai no cabeçalho `Idempotency-Key`; repetir a chave devolve
   /// o mesmo agendamento. [clientCode] vai em `X-Client-Code` quando o aparelho
   /// já tem código.
+  ///
+  /// `ClientBookingCreated.clientCode` só vem quando o telefone é novo. Telefone
+  /// que já existe, sem código no aparelho, marca o horário mas não recebe código
+  /// (só telefone não basta, CT-04-08).
   Future<ClientBookingCreated> createClientBooking({
     required String barbershopId,
     required String idempotencyKey,

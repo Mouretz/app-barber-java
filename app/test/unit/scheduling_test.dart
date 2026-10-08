@@ -240,13 +240,19 @@ void main() {
       );
     });
 
-    test('CT-01-14 hoje + 14 (21/10) vem vazio', () {
-      expect(isWithinHorizon(const SpDate(2026, 10, 21), now), isFalse);
-      expect(
-        livres(agora: '2026-10-07T09:00:00', date: const SpDate(2026, 10, 21)),
-        isEmpty,
-      );
-    });
+    test(
+      'CT-01-14 regra pura: hoje + 14 (21/10) vem vazio (o mock responde 422)',
+      () {
+        expect(isWithinHorizon(const SpDate(2026, 10, 21), now), isFalse);
+        expect(
+          livres(
+            agora: '2026-10-07T09:00:00',
+            date: const SpDate(2026, 10, 21),
+          ),
+          isEmpty,
+        );
+      },
+    );
 
     test('ontem vem vazio', () {
       expect(

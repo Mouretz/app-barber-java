@@ -236,12 +236,54 @@ void main() {
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNotNull);
+    expect(
+      find.text('Dá para cancelar até 2 horas antes, em Horários.'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Ver meus horários'));
     await tester.pumpAndSettle();
     expect(find.text('Meus horários'), findsOneWidget);
     expect(find.text('Amanhã, 09:00'), findsOneWidget);
     expect(find.text('Corte com Caio'), findsOneWidget);
+  });
+
+  testWidgets('CT-04-08 telefone já cadastrado em aparelho sem código: marca, '
+      'mas o aparelho não recebe código nem vê os horários do João', (
+    tester,
+  ) async {
+    final clock = FixedClock(kNow);
+    final repo = seededRepo(clock);
+    await pumpCliente(tester, repo: repo, clock: clock, location: agendar);
+    await choose(tester);
+    await tapKey(tester, 'slot-09:00');
+    await tapKey(tester, 'booking-continue');
+    await tester.enterText(find.byKey(const ValueKey('confirm-name')), 'João');
+    await tester.enterText(
+      find.byKey(const ValueKey('confirm-phone')),
+      '(11) 98765-4321',
+    );
+    await tapKey(tester, 'confirm-submit');
+
+    expect(find.text('Horário marcado'), findsOneWidget);
+    expect(
+      find.textContaining('não ficou ligado ao seu cadastro'),
+      findsOneWidget,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(DeviceStore.kClientCode), isNull);
+
+    final s = await repo.state;
+    final created = s.bookings.where(
+      (b) => b.startAt == sp('2026-10-08T09:00:00'),
+    );
+    expect(created.single.client.id, MockSeed.joaoId);
+
+    await tester.tap(find.text('Ver meus horários'));
+    await tester.pumpAndSettle();
+    expect(find.text('Meus horários'), findsOneWidget);
+    expect(find.text('Amanhã, 09:00'), findsNothing);
+    expect(find.text('Amanhã, 10:00'), findsNothing);
   });
 
   testWidgets('toque duplo no Confirmar cria um agendamento só', (

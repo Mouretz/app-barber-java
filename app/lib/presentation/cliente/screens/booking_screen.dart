@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/format/formatters.dart';
+import '../../../core/storage/device_store.dart';
 import '../../../core/time/sao_paulo.dart';
 import '../../../data/models/availability.dart';
 import '../../../data/models/barbershop.dart';
@@ -473,6 +474,7 @@ class _BookedView extends ConsumerWidget {
     final t = CortaTokens.of(context);
     final text = Theme.of(context).textTheme;
     final today = SpDate.of(ref.watch(clockProvider).now());
+    final linked = ref.watch(deviceStoreProvider).clientCode != null;
     return Scaffold(
       key: const ValueKey('booking-success'),
       body: SafeArea(
@@ -497,7 +499,12 @@ class _BookedView extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Dá para cancelar até 2 horas antes, em Horários.',
+                linked
+                    ? 'Dá para cancelar até 2 horas antes, em Horários.'
+                    : 'Este aparelho não ficou ligado ao seu cadastro, então o '
+                          'horário não aparece em Horários. Para cancelar, fale '
+                          'com a barbearia.',
+                key: const ValueKey('booking-success-note'),
                 style: text.bodySmall,
               ),
               const Spacer(),

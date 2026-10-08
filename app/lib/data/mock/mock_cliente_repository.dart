@@ -285,6 +285,11 @@ class MockClienteRepository implements ClienteRepository {
     }
 
     // Grava.
+    // Só telefone não basta (decisão do PO, CT-04-08): o código do aparelho só
+    // sai quando o telefone é novo. Telefone que já existe, pedido sem código,
+    // marca o horário no cadastro dele mas não devolve código nenhum, nem o
+    // antigo nem um novo. Assim, saber o telefone de alguém não abre os
+    // horários dessa pessoa.
     if (client == null) {
       client = MockClient(
         id: newUuid(),
@@ -293,21 +298,13 @@ class MockClienteRepository implements ClienteRepository {
         createdAt: now,
       );
       s.clients.add(client);
+      issuedCode = newClientCode();
+      s.codes[issuedCode] = client.id;
     }
     client.fichaNames.putIfAbsent(
       barbershopId,
       () => request.client?.name.trim() ?? client!.name,
     );
-    if (clientCode == null) {
-      issuedCode = s.codes.entries
-          .where((e) => e.value == client!.id)
-          .map((e) => e.key)
-          .firstOrNull;
-      if (issuedCode == null) {
-        issuedCode = newClientCode();
-        s.codes[issuedCode] = client.id;
-      }
-    }
 
     final booking = Booking(
       id: newUuid(),
