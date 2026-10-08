@@ -1,0 +1,84 @@
+name: CortaAqui APK
+
+# Gera os dois APKs (Cliente e Casa) em modo mock, sem servidor, e também os dois em
+# modo api (só artifact, sem release) pra QA conferir o que some fora do mock.
+# - Em PR que mexe no app: só gera e anexa como artifact (prova que o build fecha).
+# - Na main ou rodando na mão: também publica uma release com os dois arquivos.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["app/**", ".github/workflows/cortaaqui-apk.yml"]
+  pull_request:
+    paths: ["app/**", ".github/workflows/cortaaqui-apk.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.47.6"
+          cache: true
+
+      - run: flutter pub get
+
+      - name: APK Cliente
+        run: flutter build apk --release --flavor cliente -t lib/main_cliente.dart --dart-define=DATA_SOURCE=mock
+
+      - name: APK Casa
+        run: flutter build apk --release --flavor casa -t lib/main_casa.dart --dart-define=DATA_SOURCE=mock
+
+      - name: Juntar os arquivos mock
+        run: |
+          mkdir -p ../dist ../dist-api
+          cp build/app/outputs/flutter-apk/app-cliente-release.apk ../dist/CortaAqui-cliente.apk
+          cp build/app/outputs/flutter-apk/app-casa-release.apk ../dist/CortaAqui-casa.apk
+
+      - name: APKs em modo api (sem release)
+        run: |
+          flutter build apk --release --flavor cliente -t lib/main_cliente.dart --dart-define=DATA_SOURCE=api
+          cp build/app/outputs/flutter-apk/app-cliente-release.apk ../dist-api/CortaAqui-cliente-api.apk
+          flutter build apk --release --flavor casa -t lib/main_casa.dart --dart-define=DATA_SOURCE=api
+          cp build/app/outputs/flutter-apk/app-casa-release.apk ../dist-api/CortaAqui-casa-api.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cortaaqui-apks
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cortaaqui-apks-api
+          path: dist-api/*.apk
+          if-no-files-found: error
+
+      - name: Publicar release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cortaaqui-apk-${{ github.run_number }}
+          name: CortaAqui APK ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Dois apps de teste em modo mock (sem servidor), para instalar direto no Android.
+            - CortaAqui-cliente.apk: quem marca o horário
+            - CortaAqui-casa.apk: gerente e profissional
+          files: |
+            dist/CortaAqui-cliente.apk
+            dist/CortaAqui-casa.apk
