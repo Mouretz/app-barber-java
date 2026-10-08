@@ -7,12 +7,21 @@ void main() {
     expect(c.isMock, isTrue);
   });
 
-  test('só "api" liga o servidor; o resto cai no mock', () {
+  test('aceita só mock e api', () {
     expect(AppConfig.parseDataSource('api'), DataSource.api);
     expect(AppConfig.parseDataSource(' API '), DataSource.api);
     expect(AppConfig.parseDataSource('mock'), DataSource.mock);
-    expect(AppConfig.parseDataSource(''), DataSource.mock);
-    expect(AppConfig.parseDataSource('prod'), DataSource.mock);
+    expect(AppConfig.parseDataSource('Mock'), DataSource.mock);
+  });
+
+  test('valor desconhecido ou vazio para o app, nunca vira mock', () {
+    for (final raw in ['', '  ', 'prod', 'apii', 'servidor']) {
+      expect(
+        () => AppConfig.parseDataSource(raw),
+        throwsArgumentError,
+        reason: 'DATA_SOURCE="$raw"',
+      );
+    }
   });
 
   test('nomes dos apps', () {
