@@ -21,6 +21,9 @@ jobs:
 
       - name: Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # o pacote antigo "tools" (padrão da action) não existe mais no SDK
+          packages: platform-tools
 
       - name: Plataformas Android
         run: |
