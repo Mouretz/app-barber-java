@@ -190,6 +190,53 @@ class CommissionIT extends DomainTest {
                 .containsEntry("shop_cents", 1800);
     }
 
+    @Test
+    @DisplayName("CT-20-16 desativado na lista do PUT /commission é aceito e guarda a %; reativado, o próximo concluído grava a % salva e o passado não muda")
+    void deactivatedProfessionalKeepsSavedPercent() {
+        UUID p3 = w.professional(w.shopA, "P3", null);
+        w.hours(w.shopA, p3, 8 * 60, 19 * 60);
+        // Passado: concluído com o padrão 60/40, antes de desativar.
+        UUID before = houseBook(w.corte, p3, "2026-10-07T10:00").id();
+        clock.setSp("2026-10-07T10:30:00");
+        assertThat(status(w.tGA, w.shopA, before, "COMPLETED").status()).isEqualTo(200);
+        Res off = send(req(HttpMethod.PATCH, "/barbershops/" + w.shopA + "/professionals/" + p3).token(w.tGA)
+                .body(map("active", false)));
+        assertThat(off.status()).as("%s", off).isEqualTo(200);
+        assertThat(off.body().get("active").asBoolean()).isFalse();
+
+        // Desativado na lista: 200, sem 422, e a % fica salva.
+        Res put = putCommission(w.tGA, w.shopA, settings(split(40, 60), List.of(own(w.p2, 30, 70), own(p3, 50, 50))));
+        assertThat(put.status()).as("%s", put).isEqualTo(200);
+        assertThat(ownRow(put, p3).get("professionalPercent").asInt()).isEqualTo(50);
+        Res get = getCommission(w.tGA, w.shopA);
+        assertThat(ownRow(get, p3).get("professionalPercent").asInt()).isEqualTo(50);
+        assertThat(ownRow(get, p3).get("shopPercent").asInt()).isEqualTo(50);
+        assertThat(pctInDb(p3)).isEqualTo(50);
+
+        // Reativar pela rota da equipe (PATCH active=true); a % salva continua lá.
+        Res on = send(req(HttpMethod.PATCH, "/barbershops/" + w.shopA + "/professionals/" + p3).token(w.tGA)
+                .body(map("active", true)));
+        assertThat(on.status()).as("%s", on).isEqualTo(200);
+        assertThat(on.body().get("active").asBoolean()).isTrue();
+        assertThat(pctInDb(p3)).isEqualTo(50);
+
+        UUID after = houseBook(w.corte, p3, "2026-10-07T11:00").id();
+        clock.setSp("2026-10-07T11:30:00");
+        assertThat(status(w.tGA, w.shopA, after, "COMPLETED").status()).isEqualTo(200);
+        assertThat(frozen(after)).containsEntry("professional_percent", 50).containsEntry("shop_percent", 50)
+                .containsEntry("professional_cents", 2000).containsEntry("shop_cents", 2000);
+        // O passado não muda.
+        assertThat(frozen(before)).containsEntry("professional_percent", 60).containsEntry("shop_percent", 40)
+                .containsEntry("professional_cents", 2400).containsEntry("shop_cents", 1600);
+        Res cash = get("/barbershops/" + w.shopA + "/cash/professionals/" + p3 + "?month=2026-10", w.tGA);
+        assertThat(cash.status()).isEqualTo(200);
+        JsonNode t = cash.body().get("totals");
+        assertThat(t.get("completedCount").asInt()).isEqualTo(2);
+        assertThat(t.get("grossCents").asLong()).isEqualTo(8000);
+        assertThat(t.get("professionalCents").asLong()).isEqualTo(4400);
+        assertThat(t.get("shopCents").asLong()).isEqualTo(3600);
+    }
+
     private Map<String, Object> frozen(UUID id) {
         return db.sql("""
                         SELECT professional_percent::int AS professional_percent, shop_percent::int AS shop_percent,

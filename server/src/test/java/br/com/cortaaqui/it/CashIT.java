@@ -322,7 +322,7 @@ class CashIT extends DomainTest {
     // ------------------------------------------------------------------ dinheiro
 
     @Test
-    @DisplayName("CT-20-09 R$ 33,33 a 50%: grava 16,67 / 16,66 na conclusão e o caixa mostra o mesmo, sem recalcular")
+    @DisplayName("CT-20-08 / CT-20-09 R$ 33,33 concluído pela API: 50% grava 16,67 / 16,66, 60% grava 20,00 / 13,33 (e 70% 23,33 / 10,00); o caixa mostra o mesmo, sem recalcular")
     void roundingPerBookingThroughApi() {
         UUID avulso = w.service(w.shopA, "Avulso", 30, 3333);
         db.sql("UPDATE professionals SET professional_percent = 50 WHERE id = :p").param("p", w.p1).update();
