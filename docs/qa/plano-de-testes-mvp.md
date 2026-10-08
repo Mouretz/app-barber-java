@@ -47,8 +47,9 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
 
 **Agenda e horários livres**
 - **Grade de 30 em 30 min.** Os horários começam de 30 em 30 min e o cliente escolhe o horário exato. Pedir um início fora da grade (ex.: 10:15) dá 422 `VALIDATION_ERROR` com o campo `startAt`. (CT-01-06, CT-01-18)
-- **Turnos são só filtro na tela:** manhã 08:00–12:00, tarde 12:00–18:00, noite 18:00–21:00. O turno não muda o que o servidor calcula. (CT-01-17)
-- **Duração do serviço é definida pelo gerente.** No mock: corte 30 min, barba 30 min e combo 60 min (ocupa 2 horários seguidos). (CT-10-06, CT-00-33)
+- **Turnos são só filtro na tela:** manhã 08:00–12:00, tarde 12:00–18:00, noite 18:00–21:00. O filtro usa o **início** do horário: um Corte + Barba das 11:30 às 12:30 fica em manhã (regra do PO, 08/10). O turno não muda o que o servidor calcula. (CT-01-17, CT-01-30)
+- **Expediente só entre 08:00 e 21:00, na grade de 30 min (regra do PO, 08/10).** O servidor recusa com 422 `VALIDATION_ERROR` o expediente que começa antes de 08:00, termina depois de 21:00 ou às 00:00, ou tem início ou fim fora da grade (ex.: 08:15). Os horários livres seguem o relógio: 08:00, 08:30, 09:00... O fim às 00:00 continua valendo só para o bloqueio. (CT-07-08, CT-07-09, CT-02-21)
+- **Duração do serviço é definida pelo gerente, só em múltiplos de 30 min** (30, 60, 90...) (regra do PO, 08/10). Zero, negativa ou 45 min dá 422 `VALIDATION_ERROR`. Um serviço de 90 min ocupa 3 horários seguidos. No mock: Corte 30 min, Barba 30 min e Corte + Barba 60 min (ocupa 2 horários seguidos). (CT-10-06, CT-10-07, CT-10-10, CT-00-33)
 - **Um horário só aparece nos livres se:** o serviço inteiro cabe no expediente do profissional, não bate com marcação `agendado` ou `concluido` nem com bloqueio em nenhum dos horários que ele ocupa, e começa com pelo menos 30 min de antecedência (regra do cliente pelo app). (CT-01-02 a CT-01-12)
 - **A agenda abre 14 dias contando com hoje:** de hoje até hoje + 13, com "hoje" no fuso America/Sao_Paulo. Fora disso dá 422 `DATE_OUT_OF_RANGE`, tanto pra listar horários quanto pra marcar (não é lista vazia). (CT-01-13, CT-01-14, CT-06-08, CT-00-30)
 - **O que ocupa a agenda (a trava):** a trava vale **entre agendamentos** `agendado` e `concluido`: dois deles nunca se sobrepõem no mesmo profissional. Um agendamento novo também não pode cair num bloqueio (409 `SLOT_TAKEN`). **Falta e cancelado não ocupam:** depois de marcar falta, o horário fica livre de novo. (CT-03-06, CT-03-09 a CT-03-11, CT-06-11)
@@ -67,6 +68,7 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
 - **Código mal formado:** `X-Client-Code` fora do formato UUID dá 401 (está no contrato). (CT-04-24)
 - **Cliente novo (sem 1º agendamento aceito):** vê "Você ainda não tem horários" e nunca uma tela de erro. O app não chama `GET /me/bookings` antes de o primeiro agendamento dar certo e mostra esse texto sozinho. O servidor continua dando 401 pra qualquer código que não conhece (regra única). (CT-15-05 a CT-15-09)
 - **Aparelho desconectado (401 depois da liberação):** quando qualquer rota com `X-Client-Code` passa a dar 401 depois de o gerente liberar o aparelho, o app mostra um aviso curto com o texto exato "Este aparelho foi desconectado pela barbearia.", uma vez só. Depois apaga o código e volta pro estado de cliente novo: Início com "Você ainda não tem horários", campo de telefone livre, nenhuma chamada a `/me/bookings` e nenhuma tela de erro. O próximo agendamento aceito gera um código novo. (CT-17-29 a CT-17-32, CT-09-12)
+- **Introdução (regra do PO, 08/10):** aparece só na 1ª abertura e de novo depois do "Entrar como cliente novo" (mock) ou do aviso "Este aparelho foi desconectado pela barbearia.". Fechar e abrir o app, ou outro erro qualquer, não mostra a introdução de novo. (CT-14-04 a CT-14-07)
 - **Limite de 2 horários futuros:** vale só pro que é marcado pelo app e soma todas as barbearias. (CT-01-19 a CT-01-22, CT-01-27, CT-01-28, CT-00-42)
 - **Papel por barbearia:** a mesma pessoa pode ser gerente em uma e não ter acesso, ou ter outro papel, em outra. (CT-00-38 a CT-00-40)
 
@@ -77,12 +79,13 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
 - **Pedido repetido e status mudou:** repetir o mesmo pedido com a mesma `Idempotency-Key` é ignorado e devolve o mesmo resultado. Um pedido (com outra chave) que chega depois de o status já ter mudado leva 409 `STATUS_CHANGED` (o `INVALID_STATUS_TRANSITION` saiu do contrato), e a tela recarrega. Vale pra cancelar (cliente e Casa) e pra mudar status. (CT-00-02, CT-00-03, CT-00-06, CT-00-43 a CT-00-45, CT-04-10, CT-02-23)
 - **Marcação pela Casa ou balcão:** vale a janela de 14 dias. Não valem o limite de 2 nem os 30 min. A Casa pode marcar o slot de 30 min que está **em andamento** agora, mas não um que já terminou (às 10:10, o slot 10:00 pode e o 09:30 não). Não conta no limite de 2 do cliente pelo app. O cliente pelo app continua com 30 min de antecedência. (CT-06-05, CT-06-06, CT-06-08 a CT-06-10, CT-06-12 a CT-06-14)
 - **Balcão:** o nome é obrigatório e o telefone é opcional. Sem telefone, o atendimento cria só a ficha daquela barbearia (nenhum cliente por telefone) e não conta no limite de 2. Com telefone, ele é normalizado e liga ao cliente daquele número. (CT-06-01, CT-06-07, CT-06-15, CT-06-16)
-- **Profissional removido é desativado, não apagado.** O servidor recusa a desativação enquanto houver horário futuro ativo. Depois de desativado, some da agenda e do agendamento, e histórico e caixa continuam. (CT-10-04, CT-10-05, CT-10-08, CT-10-09)
+- **Profissional removido é desativado, não apagado.** O servidor recusa a desativação enquanto houver horário futuro ativo. Depois de desativado, some da agenda e do agendamento e **perde o acesso ao app Casa** (regra do PO, 08/10): o login dá 401, e o token que ele já tinha para de valer na hora (401 na próxima chamada). O histórico continua no caixa do gerente. **O gerente pode reativar:** o profissional volta à agenda, ao agendamento e ao login, e vale a % que estiver salva. (CT-10-04, CT-10-05, CT-10-08, CT-10-09, CT-10-11 a CT-10-13, CT-20-16)
 
 **Papéis**
 - **Gerente:** tudo na sua barbearia, inclusive a agenda de qualquer profissional.
 - **Profissional que não é gerente:** vê só a própria agenda. Pedir a agenda de outro profissional dá 403. Marca, conclui, dá falta, cancela e bloqueia só na agenda dele. Vê só o próprio ganho do mês. (CT-00-12, CT-02-22)
-- **Só o gerente:** expediente e folgas, serviços, preços, % (rotas `/commission`, GET e PUT), outros profissionais e o caixa da casa inteira (total da barbearia e linhas de todos os profissionais).
+- **Profissional em Clientes (regra do PO, 08/10):** busca e cadastra cliente (pra marcar no balcão). **Não edita ficha de cliente que já existe, só cria** (*interpretação da QA* de "editar ficha de outro é só do gerente"; **a confirmar com o PO**). Liberar aparelho é só do gerente. (CT-17-07, CT-17-21, CT-17-34 a CT-17-36)
+- **Só o gerente:** expediente e folgas, serviços, preços, % (rotas `/commission`, GET e PUT), outros profissionais (incluir, desativar e reativar), editar ficha de cliente, liberar aparelho e o caixa da casa inteira (total da barbearia e linhas de todos os profissionais).
 - **Caixa por papel (regra do PO, 07/10):** `GET /cash` e `GET /cash/professionals/{id}` **não** são só do gerente. O profissional que não é gerente recebe **200 só com a própria linha**, sem o total da casa e sem as linhas dos outros profissionais. Ele recebe **403 só quando pede a linha de outro profissional**. Na própria linha, ele vê **só a parte dele**. O `shopCents` é **opcional** no `CashTotals`, e o servidor **não manda o campo** (fica ausente, nem `null` nem zero) quando quem pede é um profissional que não é gerente, nas duas rotas. O `grossCents` e o `professionalCents` dele continuam. O gerente recebe o `shopCents` normalmente. As rotas `/commission` continuam só do gerente (403 para quem não é). (CT-08-09, CT-08-10, CT-08-13 a CT-08-15, CT-20-10, CT-00-15)
 - **O bloqueio vale no servidor** (403), não só escondendo o botão na tela. (CT-00-12 a CT-00-24)
 
@@ -197,7 +200,7 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-01-14 | Hoje = 07/10. | Pedir livres de 21/10 (hoje + 14) e agendar nesse dia. | **422 `DATE_OUT_OF_RANGE` nos dois**: a lista não volta vazia, volta erro. Nada gravado. | UNI + API |
 | CT-01-15 | Agora = 11:00. | Agendar hoje às 10:00. | Recusado (horário que já passou). | UNI + API |
 | CT-01-16 | Hoje = 07/10. | Abrir o seletor de dia na tela Agendar. | Mostra 14 dias: de 07/10 a 20/10. | FLU |
-| CT-01-17 | O servidor devolve livres de 08:00 a 20:30. | Na tela, filtrar por manhã, tarde e noite. | Manhã: 08:00 a 11:30. Tarde: 12:00 a 17:30. Noite: 18:00 a 20:30. 12:00 fica só em tarde e 18:00 só em noite. Trocar o turno não muda os horários nem faz o app calcular nada. | FLU |
+| CT-01-17 | O servidor devolve livres de 08:00 a 20:30. | Na tela, filtrar por manhã, tarde e noite. | Manhã: 08:00 a 11:30. Tarde: 12:00 a 17:30. Noite: 18:00 a 20:30. 12:00 fica só em tarde e 18:00 só em noite (o turno é pelo início). Trocar o turno não muda os horários nem faz o app calcular nada. | FLU |
 | CT-01-18 | — | Escolher um turno e tocar num horário exato. | O horário tocado fica marcado e é exatamente esse início que vai no POST. | FLU |
 | CT-01-19 | T1 já tem 2 horários futuros `agendado`, marcados pelo app. | Agendar o 3º com T1, pelo app. | Recusado com erro de limite por telefone. | API |
 | CT-01-20 | T1 tem 2 futuros. Cliente cancela 1. | Agendar de novo com T1. | Aceito: cancelado não conta no limite. | API |
@@ -210,6 +213,7 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-01-27 | T1 tem 1 futuro pelo app na A e 1 pelo app na B. | Agendar o 3º com T1, pelo app, na A. | Recusado com erro de limite: o limite soma todas as barbearias. | API |
 | CT-01-28 | T1 tem 2 futuros pelo app na A. | Agendar com T1, pelo app, na B. Depois cancelar 1 na A e tentar de novo na B. | A 1ª tentativa é recusada. Depois do cancelamento, o agendamento na B é aceito. | API |
 | CT-01-29 | Nenhum futuro para T1. | Pelo app (D1), agendar 1 com `(11) 98765-4321` e 1 com `5511987654321`. Depois tentar o 3º com `+55 11 98765-4321`. | Os 2 primeiros aceitos e ligados ao mesmo cliente, que volta como `+5511987654321`. O 3º é recusado: o limite soma as variações do número. | API |
+| CT-01-30 | Expediente de P1 08:00–21:00. Corte + Barba (60 min). | Pedir os livres de Corte + Barba e filtrar por manhã, tarde e noite. | 11:30 (11:30–12:30) aparece só em manhã e 17:30 (17:30–18:30) só em tarde: o turno é pelo início. O último livre é 20:00 (20:00–21:00), em noite. 20:30 não aparece (passaria das 21:00). | FLU + API |
 
 ### CT-03 · (3) Sem encaixe duplo por profissional
 
@@ -264,7 +268,10 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-14-01 | Primeira abertura. | Tocar Próximo duas vezes. | Passa pelas 3 telas. O indicador mostra 3 pontos e só o ponto da tela atual fica amarelo `#E6B325`. | FLU |
 | CT-14-02 | Na 3ª tela. | Tocar no botão final. | Vai para o Início. | FLU |
 | CT-14-03 | Na 1ª tela. | Tocar Pular. | Vai direto para o Início. | FLU |
-| CT-14-04 | Intro já vista. | Fechar e abrir o app. | Depende da [pergunta da intro](#perguntas-em-aberto). | FLU |
+| CT-14-04 | Intro já vista. | Fechar o app à força e abrir de novo. Mandar pro fundo e voltar. | A intro **não** aparece: abre direto no Início. | FLU |
+| CT-14-05 | APK mock, intro já vista, João preso ao aparelho. | No menu, tocar em "Entrar como cliente novo". Passar pela intro. Fechar e abrir o app. | A intro aparece de novo, na 1ª tela. Depois dela, o Início mostra "Você ainda não tem horários" (CT-15-08). Ao reabrir, a intro não aparece mais. | FLU + MAN |
+| CT-14-06 | Intro já vista. Fake do cliente HTTP que passa a dar 401 com o código do aparelho (aparelho liberado, CT-17-19). | Abrir o Início. Passar pela intro. Fechar e abrir o app. | Aparece o aviso "Este aparelho foi desconectado pela barbearia." uma vez. Depois a intro aparece de novo e, ao passar, o Início fica como cliente novo. Ao reabrir: nem aviso nem intro. | FLU |
+| CT-14-07 | Intro já vista, aparelho com código. Fake do cliente HTTP. | Abrir o Início sem rede, com 500 e com 422 numa ação. | A intro **não** aparece e o código do aparelho não é apagado. Só a desconexão (CT-14-06) e o "Entrar como cliente novo" (CT-14-05) mostram a intro de novo. | FLU |
 
 ### CT-15 · (15) Início
 
@@ -314,7 +321,7 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-02-18 | P1 logado. | Bloquear 11:00–11:00 e 11:00–10:30. | Os 2 recusados (422): o fim tem que ser depois do início. | UNI + API |
 | CT-02-19 | P1 tem um bloqueio 14:00–16:00 e marcações `agendado` às 13:00 e 16:00. | P1 desbloqueia o próprio bloqueio. Em outro teste, G-A desbloqueia um bloqueio de P1. | Os 2 aceitos. 14:00–15:30 voltam aos livres. As marcações das 13:00 e 16:00 continuam iguais (mesmo id, horário e status), e nenhuma marcação é criada ou cancelada (conferir no banco). | API + INT |
 | CT-02-20 | P1 logado. P2 tem um bloqueio. | P1 tenta desbloquear o bloqueio de P2. | 403. O bloqueio continua. | API |
-| CT-02-21 | P1 logado. Expediente de P1 na sexta até o fim do dia (00:00). Servidor em UTC. | Bloquear sexta 23:30–00:00 (fim = sábado 00:00 BRT). Pedir a agenda de sexta e a de sábado. | Aceito: termina às 00:00, que conta como fim da sexta. O bloqueio aparece só na agenda de sexta. Na de sábado não aparece nada, e o slot de sábado 00:00 (se houver expediente) continua livre. | UNI + API |
+| CT-02-21 | P1 logado. Expediente de P1 na sexta até 21:00. Servidor em UTC. | G-A tenta salvar o expediente de sexta com fim 00:00. Depois P1 bloqueia sexta 23:30–00:00 (fim = sábado 00:00 BRT). Pedir a agenda de sexta e a de sábado. | Expediente com fim 00:00: recusado (422 `VALIDATION_ERROR`), o de 21:00 fica. Bloqueio: aceito, termina às 00:00, que conta como fim da sexta. O bloqueio aparece só na agenda de sexta. Na de sábado não aparece nada, e os livres de sábado não mudam. | UNI + API |
 | CT-02-22 | P1 logado (não gerente). | `GET /agenda?date=…` sem filtro, com `professionalId` = P1 e com `professionalId` = P2. | Sem filtro: 200 só com P1. Com P1: 200. Com P2: **403** e nenhum dado de P2 (não é lista vazia nem filtro silencioso). | API |
 | CT-02-23 | Horário de P1 `agendado` às 15:00. Agora = 15:10. Gerente e P1 com a agenda aberta. | Gerente conclui. Depois P1, com a tela velha, marca falta (com outra `Idempotency-Key`). | O pedido de P1 leva 409 `STATUS_CHANGED`. O status continua `concluido`. O app Casa de P1 recarrega e mostra concluído, sem as ações velhas. | API + FLU |
 | CT-02-24 | P1 tem `agendado` às 14:00 e às 17:00. Bloqueio 13:30–15:00 por cima do das 14:00. | Pedir a agenda do dia como G-A e como P1. | A das 14:00 vem com `overlapsBlock = true` e a das 17:00 com `false`, nas 2 visões. O app Casa destaca só a das 14:00. | API + FLU |
@@ -354,6 +361,8 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-07-05 | — | Salvar expediente com fim antes do início, ou com hora inválida. | Recusado (422). O expediente antigo fica. | UNI + API |
 | CT-07-06 | — | Mudar o expediente de P1 depois que os livres de amanhã foram calculados. | O próximo pedido de livres já reflete a mudança (sem cache velho). | API |
 | CT-07-07 | P1 logado. | Tentar mudar o próprio expediente e marcar a própria folga. | 403. Expediente e folgas são só do gerente. Nada muda. | API |
+| CT-07-08 | G-A logado. | Salvar o expediente de P1 na terça, um por vez: 08:00–21:00, 07:30–18:00, 09:00–21:30 e 10:00–00:00. | 08:00–21:00: aceito, e os livres de Corte vão de 08:00 a 20:30. 07:30–18:00, 09:00–21:30 e 10:00–00:00: 422 `VALIDATION_ERROR`, e o expediente antigo fica. | UNI + API |
+| CT-07-09 | G-A logado. | Salvar o expediente de P1 na terça: 08:15–18:00, 08:00–17:45 e 08:30–18:30, um por vez. | 08:15–18:00 e 08:00–17:45: 422 `VALIDATION_ERROR` (fora da grade de 30 min), e o expediente antigo fica. 08:30–18:30: aceito, e os livres de Corte seguem o relógio: 08:30, 09:00... até 18:00. | UNI + API |
 
 ### CT-17 · (17) Clientes
 
@@ -365,7 +374,7 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-17-04 | Clientes "João Almeida" (T1) e "Ana". | Buscar "joão", "JOAO", "alm", `(11) 98765-4321` e `98765`. | Acha o João nos 5 casos. A busca por telefone tira o que não é dígito antes de procurar. | API |
 | CT-17-05 | A Barbearia B tem cliente "João B". | G-A busca "joão". | "João B" não aparece. | API |
 | CT-17-06 | — | Cadastrar e buscar pelo app Casa. | O cliente novo aparece na busca sem precisar reabrir a tela. | FLU |
-| CT-17-07 | P1 logado. | Buscar e cadastrar cliente. | Depende da [pergunta do profissional em Clientes](#perguntas-em-aberto). | API |
+| CT-17-07 | P1 logado (não gerente). | Buscar "joão". Cadastrar cliente novo com nome e telefone. Marcar balcão na própria agenda com essa ficha. Cadastrar de novo com T1, que já tem ficha na A. | Busca: 200, só clientes da A. Cadastro: 201, ficha na A. O balcão com essa ficha é aceito. T1 repetido: 409 `PHONE_IN_USE` (igual ao gerente). | API |
 | CT-17-08 | T1 tem ficha na B com nome "João Silva" e e-mail. Não tem ficha na A. | G-A cadastra T1 na A com nome "João". | Aceito. Cria a ficha da A ligada ao mesmo cliente (mesmo telefone). A resposta não traz nada da ficha da B (nome, e-mail, histórico) nem avisa que ela existe. | API + INT |
 | CT-17-09 | T1 tem ficha na A e na B. | G-A muda o nome e o e-mail de T1 na A. | A ficha da B continua igual (conferir no banco). | INT |
 | CT-17-10 | T1 tem agendamentos na A e na B. | G-A abre a ficha e o histórico de T1. G-B faz o mesmo. | Cada um vê só a própria ficha e só os agendamentos da própria barbearia. | API |
@@ -392,6 +401,9 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-17-31 | Depois do CT-17-29 (D1 sem código; T1 sem aparelho, com 1 futuro; T3 sem aparelho). | Rodada 1: em D1, agendar com T1. Rodada 2 (do mesmo ponto de partida): em D1, agendar com T3. | As 2 rodadas são aceitas, e o app gera um código novo (diferente de K1) que fica preso ao telefone usado. Com T1, Meus horários mostra o horário antigo e o novo. Com T3, mostra só o novo. K1 continua dando 401. | API + FLU |
 | CT-17-32 | D1 com K1 preso a T1 e 1 horário futuro. G-A libera o aparelho de T1. Fake do cliente HTTP. | Em rodadas separadas, a 1ª chamada com K1 depois da liberação é: listar Meus horários, cancelar o horário futuro e agendar um novo. Numa 4ª rodada, 2 chamadas com K1 dão 401 ao mesmo tempo (Início e Meus horários). | Em todas, o mesmo tratamento: aviso "Este aparelho foi desconectado pela barbearia." uma vez só (também na 4ª rodada), código apagado, estado de cliente novo e nenhuma tela de erro. O cancelamento e o agendamento com K1 não acontecem. | FLU |
 | CT-17-33 | G-A logado. Aparelho novo. | Mandar celular de 11 dígitos sem 9 depois do DDD (`11 8765-43210`, `+55 11 87654-3210`) em todas as entradas: agendar pelo app, marcar pela Casa, balcão, cadastrar e editar a ficha. | Recusado com 422 `VALIDATION_ERROR` no campo do telefone (o código hoje devolve `fields[0].field = "phone"`). Nada gravado. Não conflita com "nunca recusa por formato": 11 dígitos sem o 9 não formam um número válido. | UNI + API |
+| CT-17-34 | P1 logado (não gerente). Ficha de T1 na A criada por G-A e ficha de T2 criada pelo próprio P1 (CT-17-07). | `PATCH …/clients/{id}` mudando nome, telefone e e-mail das duas fichas. Repetir com G-A. | ***Interpretação da QA, a confirmar com o PO:*** P1 recebe 403 nas duas (o profissional só cria; não edita ficha que já existe, nem a que ele mesmo criou). Nada muda no banco. G-A: 200 nas duas. | API |
+| CT-17-35 | P1 (não gerente), G-A e G-B logados. Ficha de T1 na A com agendamento pelo app na A. | Cada um, na Barbearia A: buscar, cadastrar, editar a ficha de T1 e liberar o aparelho de T1. | P1: buscar 200, cadastrar 201, editar 403 (interpretação do CT-17-34) e liberar 403. G-A: tudo aceito. G-B: 404 em tudo. | API |
+| CT-17-36 | App Casa logado como P1 (não gerente), no mock e no servidor. | Abrir Clientes, buscar, cadastrar e abrir uma ficha. | Aparecem a busca e o "Novo cliente", e o cadastro funciona. Na ficha não aparecem "Editar" nem "Liberar aparelho". Logado como G-A, os 2 aparecem. | FLU |
 
 ### CT-10 · (10) Preços, serviços e profissionais
 
@@ -400,12 +412,16 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-10-01 | Corte custa R$ 40,00. Existe agendamento futuro de Corte. | G-A muda o Corte para R$ 45,00. | Agendamentos novos gravam R$ 45,00. O antigo continua com R$ 40,00 (preço gravado). | API |
 | CT-10-02 | — | Salvar preço zero, negativo, com 3 casas decimais ou texto. | Recusado (422). | UNI + API |
 | CT-10-03 | — | G-A inclui o profissional P3. | P3 aparece na agenda da Casa e na página da barbearia, e ganha livres quando tiver expediente. A % dele começa em 60/40. | API |
-| CT-10-04 | P3 sem horário futuro ativo. | G-A desativa P3. Tentar também apagar P3. | Desativação aceita: P3 continua no banco, desativado. Some da agenda da Casa, da página do cliente e da tela Agendar. Histórico e caixa dele continuam. Não existe rota que apague profissional (DELETE dá 404/405). | API |
+| CT-10-04 | P3 sem horário futuro ativo. | G-A desativa P3. Tentar também apagar P3. | Desativação aceita: P3 continua no banco, desativado. Some da agenda da Casa, da página do cliente e da tela Agendar, e perde o acesso ao app Casa (CT-10-11, CT-10-12). Histórico e caixa dele continuam no caixa do gerente. Não existe rota que apague profissional (DELETE dá 404/405). | API |
 | CT-10-05 | P1 tem 1 horário futuro `agendado`. | G-A desativa P1. Depois cancela esse horário e desativa de novo. | 1ª vez: recusado com erro próprio e P1 continua ativo. 2ª vez (sem futuro ativo): aceito. | API |
 | CT-10-06 | Barba dura 30 min. Existe Barba agendada amanhã 10:00–10:30. | G-A muda a Barba para 60 min. | Os livres de Barba passam a exigir 2 horários seguidos (como o Corte + Barba). O agendamento antigo continua 10:00–10:30 (duração gravada na marcação). | API |
-| CT-10-07 | — | Salvar serviço com duração zero ou negativa. | Recusado (422). Duração que não é múltiplo de 30: depende da [pergunta da duração](#perguntas-em-aberto). | UNI + API |
+| CT-10-07 | — | Salvar serviço novo com duração 0, -30, 15, 45 e 100 min. Em outro teste, mudar o Corte para 45 min. | Todos recusados com 422 `VALIDATION_ERROR` no campo da duração. Nada muda (o Corte continua com 30 min). | UNI + API |
 | CT-10-08 | P1 tem futuros só `cancelado` e passados `concluido`/`falta`. | G-A desativa P1. | Aceito: só horário futuro ativo trava a desativação. | API |
 | CT-10-09 | P3 desativado, com concluídos em outubro. | Pedir livres de P3. Agendar com P3 pelo app e pela Casa. G-A abre o caixa de outubro. | Livres vazios e agendamentos recusados. O caixa de outubro continua mostrando os valores de P3. | API |
+| CT-10-10 | Expediente de P1 08:00–21:00. | Criar serviços de 30, 60 e 90 min. Pedir os livres do de 90 e marcar o de 90 às 10:00. | Os 3 aceitos. O de 90 ocupa 3 horários seguidos: o primeiro livre é 08:00 e o último 19:30 (19:30–21:00); 20:00 não aparece. Depois de marcado, 10:00, 10:30 e 11:00 ficam ocupados para qualquer serviço. | UNI + API |
+| CT-10-11 | P3 desativado (CT-10-04), com e-mail e senha de login. | `POST /auth/login` com a senha certa. Depois com a senha errada. | 401 nos dois, sem token. | API |
+| CT-10-12 | P3 logado no app Casa, com token emitido antes da desativação. | G-A desativa P3. Com o token antigo de P3: `GET /auth/me`, a própria agenda, `GET /cash` e bloquear um horário. | 401 em todas, na hora (sem esperar o token expirar). Nada é criado. | API + INT |
+| CT-10-13 | P3 desativado, com concluídos em outubro e % própria salva. | P1 (não gerente) tenta reativar P3. G-A reativa P3 (`PATCH …/professionals/{id}` com `active: true`). P3 faz login. | P1: 403, e P3 continua desativado. G-A: 200. P3 volta a entrar (token novo), volta à agenda da Casa, à página da barbearia e à tela Agendar (livres conforme o expediente). Histórico e caixa de outubro continuam iguais, e a % salva vale nos novos concluídos (CT-20-16). | API |
 
 ### CT-08 · (8) Caixa do mês
 
@@ -419,7 +435,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-08-04 | Concluído em setembro. | Abrir outubro. | Não entra. Setembro continua igual. | API |
 | CT-08-05 | Gerador de casos: preços e % variados, inclusive valores que geram meio centavo e fração de centavo. | Somar parte da casa + parte do profissional, por agendamento e no mês. | **A soma bate com o preço gravado e com o total concluído, centavo por centavo.** Caixa da casa + ganho de todos os profissionais = total concluído. | UNI |
 | CT-08-06 | Barbearia B tem concluídos em outubro. | G-A abre o caixa. | Só valores da A. | API |
-| CT-08-07 | Servidor em UTC. Expediente de P1 em 31/10 até 23:30. Horário 31/10 23:00 BRT (= 01/11 02:00 UTC), concluído às 23:20 BRT. | Abrir o caixa de outubro e o de novembro. | Entra em **outubro** (data do atendimento em SP), não em novembro. | INT |
+| CT-08-07 | Servidor em UTC. Horário de P1 em 31/10 23:00 BRT (= 01/11 02:00 UTC) **inserido direto no banco** (o expediente não passa de 21:00) e concluído às 23:20 BRT. Pela API, outro horário de 31/10 20:30 BRT (= 23:30 UTC), concluído. | Abrir o caixa de outubro e o de novembro. | Os 2 entram em **outubro** (data do atendimento em SP), não em novembro. | INT |
 | CT-08-08 | Horário de 31/10 às 18:00, concluído só em 01/11 às 09:00. | Abrir outubro e novembro. | Entra em **outubro** (data do atendimento), não em novembro (data da conclusão). | INT |
 | CT-08-09 | P1 logado. Base do CT-08-03. | Abrir "meu ganho do mês". | Mostra só P1: R$ 81,00 e os agendamentos dele. Não mostra total da casa nem valores de P2. | API + FLU |
 | CT-08-10 | P1 logado (não gerente). Base do CT-08-03. | Pedir o ganho de P2 pela API: `GET /cash/professionals/{id de P2}?month=2026-10`. | 403. Nenhum valor de P2 volta (nem total, nem agendamentos). | API |
@@ -514,7 +530,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-00-14 | P1 logado. P2 tem horário `agendado`. | Concluir, marcar falta e cancelar esse horário. | 403. Status continua `agendado`. | API |
 | CT-00-15 | P1 logado. | Pedir o ganho de P2 (`GET /cash/professionals/{id de P2}`) e o caixa (`GET /cash`). | Ganho de P2: 403 (mesmo teste do CT-08-10). Caixa: 200 só com a linha de P1, sem total da casa nem linhas dos outros (CT-08-13). | API |
 | CT-00-16 | P1 logado. | Mudar a própria % e a % de P2. | 403. As duas % não mudam. | API |
-| CT-00-17 | P1 logado. | Mudar preço e duração de um serviço, criar serviço, incluir e desativar profissional. | 403. Nada muda. | API |
+| CT-00-17 | P1 logado. | Mudar preço e duração de um serviço, criar serviço, incluir, desativar e reativar profissional. | 403. Nada muda. | API |
 | CT-00-18 | P1 logado. | Mudar expediente ou folga de P1 e de P2. | 403. Nada muda. | API |
 | CT-00-19 | P1 logado. | Na própria agenda: marcar, lançar balcão, bloquear, concluir, marcar falta, cancelar e ver o próprio ganho. | Tudo aceito. | API |
 | CT-00-20 | G-A logado. | Agenda de P1 e de P2, ações em horários dos dois, caixa da casa, %, preços, serviços e expediente. | Tudo aceito. | API |
@@ -581,7 +597,7 @@ Rodar antes de mandar o APK pro mouretz. Celular Android real, **modo avião lig
 - [ ] O nome e o ícone dizem CortaAqui (Cliente e Casa distinguíveis). Nada de "Navalha", exceto a barbearia do seed.
 
 **App Cliente**
-- [ ] Intro: 3 telas, Próximo, Pular e o indicador de 3 pontos funcionam. Só o ponto ativo é amarelo; o rótulo e o "Próximo" são brancos.
+- [ ] Intro: 3 telas, Próximo, Pular e o indicador de 3 pontos funcionam. Só o ponto ativo é amarelo; o rótulo e o "Próximo" são brancos. Fechar e abrir o app não mostra a intro de novo; depois do "Entrar como cliente novo" ela volta.
 - [ ] Início: mostra o próximo horário do João (cliente do seed preso a este aparelho) e a Barbearia Navalha.
 - [ ] Página da barbearia: Corte R$ 40 (30 min), Barba R$ 30 (30 min) e Corte + Barba R$ 60 (60 min), e os profissionais Caio e Helena. Sem nota, avaliações, favoritar, pontos ou pagamento.
 - [ ] Agendar: o seletor mostra 14 dias (hoje até hoje + 13).
@@ -609,9 +625,9 @@ Rodar antes de mandar o APK pro mouretz. Celular Android real, **modo avião lig
 - [ ] Balcão sem telefone funciona. Balcão em cima de outro horário é recusado.
 - [ ] Balcão no slot em andamento funciona e num slot que já terminou é recusado. Marcar depois de hoje + 13 é recusado.
 - [ ] Marcar falta e lançar um balcão no mesmo horário funciona.
-- [ ] Desativar um profissional com horário futuro é recusado. Sem horário futuro, ele some da agenda e o caixa dele continua.
+- [ ] Desativar um profissional com horário futuro é recusado. Sem horário futuro, ele some da agenda, não consegue mais entrar no app Casa e o caixa dele continua. O gerente reativa e ele volta a entrar.
 - [ ] Expediente: fechar um dia que já tem horário. O horário continua lá, destacado.
-- [ ] Clientes: buscar e cadastrar.
+- [ ] Clientes: buscar e cadastrar. O profissional também busca e cadastra, mas não vê "Editar" nem "Liberar aparelho".
 - [ ] Ficha do cliente: "Liberar aparelho" aparece pro gerente, e depois disso um outro celular consegue agendar com o telefone e vê os horários antigos.
 - [ ] Preços: mudar um preço. O horário já marcado mantém o preço antigo.
 - [ ] Caixa do mês: concluído e balcão concluído entram. Falta e cancelado não entram. Casa + profissionais = total.
@@ -641,7 +657,7 @@ A QA só aprova quando **todos** valem:
 2. **Rodando na CI:** os jobs Java e Flutter passam no PR. Teste marcado como `@Disabled`/`skip` sem motivo escrito e sem issue não conta.
 3. **Postgres de verdade:** teste de constraint, concorrência, multi-tenant, papéis e fuso roda com Testcontainers, nunca com H2 ou mock de repositório.
 4. **Falha sem a mudança, quando fizer sentido:** para regra nova ou correção de bug, o autor mostra na descrição do PR que o teste falha sem a mudança (ex.: rodar o CT-03-07 sem a constraint e ver os 2 inserts passarem; tirar a checagem de papel e ver o CT-00-12 passar a dar 200). Para refatoração e visual, não precisa.
-5. **Limites testados:** quando a história tem limite (30 min, 2h, 08:00 e último horário que cabe, combo no fim do expediente, hoje + 13, 2 por telefone somando barbearias, 1 min antes de concluir, slot em andamento (10:29:59 / 10:30:00), grade e meia-noite do bloqueio, formatos de telefone, % de 0 a 100, meio centavo, virada do mês em SP), os dois lados do limite estão testados, não só o caminho feliz.
+5. **Limites testados:** quando a história tem limite (30 min, 2h, 08:00 e último horário que cabe, combo no fim do expediente, hoje + 13, 2 por telefone somando barbearias, 1 min antes de concluir, slot em andamento (10:29:59 / 10:30:00), grade e meia-noite do bloqueio, expediente de 08:00 a 21:00 na grade (07:30, 08:00, 08:15, 21:00, 21:30, 00:00), duração múltiplo de 30 (0, 30, 45, 90), turno pelo início, formatos de telefone, % de 0 a 100, meio centavo, virada do mês em SP), os dois lados do limite estão testados, não só o caminho feliz.
 6. **Papel testado no servidor:** toda rota nova da Casa entra na varredura de papel (CT-00-24) e na de multi-tenant (CT-00-28).
 7. **Sem relógio de verdade:** nenhum teste depende da hora em que roda. Teste que falha em certos horários é bug do teste.
 8. **Estável:** testes de concorrência repetem várias vezes por execução e passam 3 vezes seguidas na CI.
@@ -656,42 +672,28 @@ Riscos conhecidos que a regra aprovada deixa de propósito. Não são perguntas;
 
 ## Perguntas em aberto
 
-Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10); `DEVICE_PHONE_MISMATCH` antes de `PHONE_ON_OTHER_DEVICE` e 401 pro `X-Client-Code` mal formado (Back-end e contrato, 07/10); cliente novo vê "Você ainda não tem horários", sem chamar `/me/bookings` antes do 1º agendamento aceito (decisão de 07/10); mesma `Idempotency-Key` com dados diferentes dá 422 `IDEMPOTENCY_KEY_REUSED` (contrato, 08/10); bloqueio por cima de agendamento entra e o agendamento vem com `overlapsBlock` (decisão de 07/10, 23:59); o serviço de R$ 60 se chama "Corte + Barba" (decisão de 08/10); aparelho desconectado depois da liberação mostra "Este aparelho foi desconectado pela barbearia." e volta ao estado de cliente novo (decisão de 07/10). Profissional desativado na lista do `PUT /commission` é aceito, sem 422, e a % fica salva; se ele for reativado, vale a % salva (decisão de 08/10).
+Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10); `DEVICE_PHONE_MISMATCH` antes de `PHONE_ON_OTHER_DEVICE` e 401 pro `X-Client-Code` mal formado (Back-end e contrato, 07/10); cliente novo vê "Você ainda não tem horários", sem chamar `/me/bookings` antes do 1º agendamento aceito (decisão de 07/10); mesma `Idempotency-Key` com dados diferentes dá 422 `IDEMPOTENCY_KEY_REUSED` (contrato, 08/10); bloqueio por cima de agendamento entra e o agendamento vem com `overlapsBlock` (decisão de 07/10, 23:59); o serviço de R$ 60 se chama "Corte + Barba" (decisão de 08/10); aparelho desconectado depois da liberação mostra "Este aparelho foi desconectado pela barbearia." e volta ao estado de cliente novo (decisão de 07/10). Profissional desativado na lista do `PUT /commission` é aceito, sem 422, e a % fica salva; se ele for reativado, vale a % salva (decisão de 08/10). Expediente só entre 08:00 e 21:00 (o fim às 00:00 deixa de valer pro expediente) e turno pelo início do horário; início e fim do expediente na grade de 30 min, com os horários seguindo o relógio; duração do serviço só em múltiplos de 30; introdução só na 1ª abertura e depois do "Entrar como cliente novo" ou da desconexão; profissional busca e cadastra cliente, e editar ficha e liberar aparelho é só do gerente; profissional desativado perde o acesso (login 401) e o gerente pode reativar (decisões de 08/10).
 
-Estas continuam vagas demais para virar um teste com resultado esperado claro. Os casos que dependem delas estão marcados acima.
-
-**Agenda**
-1. **Horário fora dos turnos:** se o expediente começa antes das 08:00 ou vai depois das 21:00, esses horários aparecem (em qual filtro)? Um Corte + Barba que começa 11:30 e termina 12:30 fica em manhã, pelo início? (CT-01-17)
-2. **Grade x expediente:** se o expediente começa 08:15, os horários seguem o relógio (08:30, 09:00...) ou o início do expediente (08:15, 08:45...)? (CT-01-05, CT-01-06)
-3. **Duração que não é múltiplo de 30** (ex.: 45 min): o gerente pode salvar? Se pode, quantos horários ela ocupa? (CT-10-07)
-
-**Cliente e aparelho**
-
-4. **Intro:** aparece só na primeira abertura ou sempre? (CT-14-04)
-
-**Casa**
-
-5. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
-6. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
+**Nenhuma pergunta em aberto (08/10).** Fica só uma interpretação da QA para o PO confirmar: o profissional não edita ficha de cliente que já existe, só cria (regra do profissional em Clientes, CT-17-34 e CT-17-35).
 
 ## 11. Resumo dos casos
 
 | Grupo | História | Casos |
 |---|---|---|
-| CT-01 | (1) Agendar | 29 |
+| CT-01 | (1) Agendar | 30 |
 | CT-03 | (3) Sem encaixe duplo | 11 |
 | CT-04 | (4) Meus horários | 25 |
-| CT-14 | (14) Introdução | 4 |
+| CT-14 | (14) Introdução | 7 |
 | CT-15 | (15) Início | 9 |
 | CT-16 | (16) Página da barbearia | 5 |
 | CT-02 | (2) Agenda por profissional | 27 |
 | CT-06 | (6) Balcão e marcação pela Casa | 16 |
-| CT-07 | (7) Expediente e folgas | 7 |
-| CT-17 | (17) Clientes | 33 |
-| CT-10 | (10) Preços, serviços e profissionais | 9 |
+| CT-07 | (7) Expediente e folgas | 9 |
+| CT-17 | (17) Clientes | 36 |
+| CT-10 | (10) Preços, serviços e profissionais | 13 |
 | CT-08 | (8) Caixa do mês | 15 |
 | CT-20 | (20) Gerência | 16 |
 | CT-09 | (9) Visual | 12 |
 | CT-13 | (13) Nome CortaAqui | 3 |
 | CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 49 |
-| **Total** | | **270** |
+| **Total** | | **283** |
