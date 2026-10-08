@@ -1,6 +1,6 @@
 # Plano de testes do MVP do CortaAqui
 
-Autora: QA Dev (Mesa Dev). Base: as histórias do MVP aprovadas pelo mouretz em 07/10/2026 e as três rodadas de respostas do PO Dev às perguntas da QA (07/10/2026), que agora valem como regra.
+Autora: QA Dev (Mesa Dev). Base: as histórias do MVP aprovadas pelo mouretz em 07/10/2026 as três rodadas de respostas do PO Dev às perguntas da QA e a regra do caixa por papel (todas de 07/10/2026), que agora valem como regra.
 
 Este plano diz **o que** testar em cada história e **em que nível**. Ele não escolhe a implementação.
 Onde a regra ainda é vaga demais para virar um teste, o caso aponta para as [Perguntas em aberto](#perguntas-em-aberto).
@@ -43,7 +43,7 @@ Por isso o CT-03-01 tem que falhar contra o schema antigo.
 
 ## 2. Regras confirmadas
 
-Respostas do PO Dev de 07/10/2026 (três rodadas) e o modelo de dados aprovado. Cada regra aponta para os casos que a cobrem.
+Respostas do PO Dev de 07/10/2026 (três rodadas e a regra do caixa por papel) e o modelo de dados aprovado. Cada regra aponta para os casos que a cobrem.
 
 **Agenda e horários livres**
 - **Grade de 30 em 30 min.** Os horários começam de 30 em 30 min e o cliente escolhe o horário exato. (CT-01-06, CT-01-18)
@@ -70,14 +70,15 @@ Respostas do PO Dev de 07/10/2026 (três rodadas) e o modelo de dados aprovado. 
 **Papéis**
 - **Gerente:** tudo na sua barbearia, inclusive a agenda de qualquer profissional.
 - **Profissional que não é gerente:** vê só a própria agenda. Marca, conclui, dá falta, cancela e bloqueia só na agenda dele. Vê só o próprio ganho do mês.
-- **Só o gerente:** expediente e folgas, serviços, preços, %, outros profissionais e caixa da casa.
+- **Só o gerente:** expediente e folgas, serviços, preços, % (rotas `/commission`, GET e PUT), outros profissionais e o caixa da casa inteira (total da barbearia e linhas de todos os profissionais).
+- **Caixa por papel (regra do PO, 07/10):** `GET /cash` e `GET /cash/professionals/{id}` **não** são só do gerente. O profissional que não é gerente recebe **200 só com a própria linha**, sem o total da casa e sem as linhas dos outros profissionais. Ele recebe **403 só quando pede a linha de outro profissional**. O gerente vê tudo. As rotas `/commission` continuam só do gerente (403 para quem não é). (CT-08-09, CT-08-10, CT-08-13 a CT-08-15, CT-20-10, CT-00-15)
 - **O bloqueio vale no servidor** (403), não só escondendo o botão na tela. (CT-00-12 a CT-00-24)
 
 **Caixa e %**
 - **% por profissional, só número inteiro de 0 a 100.** Padrão: 60% pro profissional e 40% pra casa. Só o gerente muda. A soma é sempre 100. (CT-20-01 a CT-20-07)
 - **A % fica gravada no agendamento na conclusão.** Mudar depois não altera o caixa antigo. (CT-20-04, CT-20-05)
 - **Entra no caixa:** só agendamento `concluido`, inclusive a marcação de balcão. **Não entram:** falta, cancelado e agendado ainda não concluído. (CT-08-02, CT-08-03, CT-08-11)
-- **Arredondamento (confirmado):** é **por agendamento, na conclusão**, não no total do mês. O valor do profissional = preço × % arredondado pro centavo mais próximo, com meio centavo pra cima (`HALF_UP`). A casa fica com o resto (preço − valor do profissional). O caixa do mês só soma os valores já gravados. (CT-20-08, CT-20-09)
+- **Arredondamento (confirmado):** é **por agendamento, na conclusão**, não no total do mês. O valor do profissional = preço × % arredondado pro centavo mais próximo, com meio centavo pra cima (`HALF_UP`). A casa fica com o resto (preço − valor do profissional). O caixa do mês só soma os valores já gravados. Confirmado pelo PO em 07/10: o CT-20-08 e o CT-20-09 ficam como estão. (CT-20-08, CT-20-09)
 - **Sempre soma o total:** em cada agendamento, parte da casa + parte do profissional = preço gravado, centavo por centavo. No mês: **caixa da casa + soma do ganho de todos os profissionais = total concluído.** (CT-08-01, CT-08-05)
 - **Data do caixa:** o mês é o da data do atendimento (início da marcação) no fuso de São Paulo, não o da conclusão. (CT-08-07, CT-08-08, CT-08-12)
 
@@ -150,7 +151,7 @@ Sem isto, vários casos abaixo não têm como ser automatizados. Peço que entre
 4. **Erros com código estável:** conflito, "status mudou", fora do prazo, limite por telefone, antecedência, fora da janela de 14 dias e sem permissão devolvem um código de erro próprio no corpo (além do HTTP), para o app e os testes não dependerem do texto.
 5. **`barbershop_id` e papel vêm do token**, nunca de parâmetro da requisição. Como o papel é por barbearia, o token (ou a barbearia ativa validada no servidor) diz em qual barbearia a pessoa está agindo, e o papel é o dela nessa barbearia.
 6. **Repositório do app atrás de interface:** a mesma tela roda com o repositório mock e com o de API.
-7. **Rotas marcadas por papel no OpenAPI** (ex.: extensão `x-role: gerente`), para a varredura do CT-00-24 achar sozinha toda rota só do gerente.
+7. **Rotas marcadas por papel no OpenAPI** (ex.: extensão `x-role: gerente`), para a varredura do CT-00-24 achar sozinha toda rota só do gerente. `GET /cash` e `GET /cash/professionals/{id}` **não** levam essa marca: o profissional recebe 200 filtrado nelas (regra própria, CT-08-13 a CT-08-15).
 8. **Dinheiro em `BigDecimal` (ou centavos inteiros) com `RoundingMode.HALF_UP`.** Nunca `double`: R$ 33,33 × 50% em `double` dá 16,664999… e arredonda errado para 16,66.
 9. **Normalização do telefone numa função só**, usada no agendamento pelo app, na Casa, no balcão, no cadastro e na busca.
 10. **A trava no banco filtra pelo status:** a constraint de não sobreposição vale para `agendado`, `concluido` e bloqueio, e ignora `falta` e `cancelado`.
@@ -363,9 +364,12 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-08-07 | Servidor em UTC. Expediente de P1 em 31/10 até 24:00. Horário 31/10 23:30 BRT (= 01/11 02:30 UTC), concluído às 23:45 BRT. | Abrir o caixa de outubro e o de novembro. | Entra em **outubro** (data do atendimento em SP), não em novembro. (Se a [pergunta da meia-noite](#perguntas-em-aberto) disser que expediente até 24:00 não vale, usar o horário 23:00.) | INT |
 | CT-08-08 | Horário de 31/10 às 18:00, concluído só em 01/11 às 09:00. | Abrir outubro e novembro. | Entra em **outubro** (data do atendimento), não em novembro (data da conclusão). | INT |
 | CT-08-09 | P1 logado. Base do CT-08-03. | Abrir "meu ganho do mês". | Mostra só P1: R$ 81,00 e os agendamentos dele. Não mostra total da casa nem valores de P2. | API + FLU |
-| CT-08-10 | P1 logado. | Pedir o caixa da casa e o ganho de P2 (também pela API, passando o id de P2). | 403 nos dois. Nenhum valor volta. | API |
+| CT-08-10 | P1 logado (não gerente). Base do CT-08-03. | Pedir o ganho de P2 pela API: `GET /cash/professionals/{id de P2}?month=2026-10`. | 403. Nenhum valor de P2 volta (nem total, nem agendamentos). | API |
 | CT-08-11 | Horário de P1 em outubro ainda `agendado` (passou a hora e ninguém concluiu). | Abrir o caixa. | Não entra. | API |
 | CT-08-12 | O gerente já consultou o caixa de outubro. | Em 02/11, concluir um horário de 31/10. Abrir outubro de novo. | Outubro passa a incluir esse valor, com a % do momento da conclusão. Novembro não muda. | INT + API |
+| CT-08-13 | P1 logado (não gerente). Base do CT-08-03. | `GET /cash?month=2026-10`. | **200.** Só a linha de P1 (R$ 81,00 de ganho, 3 atendimentos). Não aparece a linha de P2 (R$ 21,00) nem o total da barbearia (R$ 165,00 bruto, R$ 63,00 da casa) em nenhum campo da resposta. Repetir com P1 sem nenhum concluído no mês: 200 com a linha dele zerada, e continua sem dados dos outros. Ver a [pergunta da parte da casa na linha do profissional](#perguntas-em-aberto). | API |
+| CT-08-14 | P1 logado (não gerente). Base do CT-08-03. | `GET /cash/professionals/{id de P1}?month=2026-10`. | **200.** Só os agendamentos concluídos de P1 em outubro, com total R$ 81,00 de ganho. Nenhum agendamento de P2. | API |
+| CT-08-15 | G-A logado (gerente). Base do CT-08-03. | `GET /cash?month=2026-10`, `GET /cash/professionals/{id de P1}` e `GET /cash/professionals/{id de P2}`. | **200 nos três.** O caixa traz o total da barbearia (R$ 165,00 bruto, R$ 63,00 da casa) e as linhas de P1 (R$ 81,00) e de P2 (R$ 21,00). Cada rota de profissional traz os agendamentos dele. Repetir com G-P2 (gerente e profissional): o mesmo resultado, não só a linha dele. | API |
 
 ### CT-20 · (20) Gerência (%)
 
@@ -380,6 +384,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-20-07 | P1 60/40, P2 70/30. | G-A muda só P1 para 50/50. Concluir 1 horário de cada. | P1 grava 50/50 e P2 continua 70/30. A % é por profissional. | INT |
 | CT-20-08 | — | Teste parametrizado do cálculo (preço, % do profissional → profissional / casa):<br>R$ 0,05 a 50% → 0,03 / 0,02<br>R$ 0,01 a 50% → 0,01 / 0,00<br>R$ 33,33 a 60% → 20,00 / 13,33<br>R$ 33,33 a 50% → 16,67 / 16,66<br>R$ 10,01 a 33% → 3,30 / 6,71<br>R$ 40,00 a 0% → 0,00 / 40,00<br>R$ 40,00 a 100% → 40,00 / 0,00 | Todos exatos. Meio centavo vai pra cima no valor do profissional e a casa fica com o resto. O caso R$ 33,33 a 50% pega quem calcula com `double` (daria 16,66). | UNI |
 | CT-20-09 | P1 com 60%. Horário de R$ 33,33 `agendado`. | Concluir. Ler o agendamento no banco e abrir o caixa. | Gravado: profissional R$ 20,00 e casa R$ 13,33. O caixa mostra esses mesmos valores, sem recalcular. | INT + API |
+| CT-20-10 | P1 logado (não gerente). | `GET /commission` e `PUT /commission` (mudando a % de P1 e a de P2). Repetir o GET e o PUT com G-A. | P1: **403** nos dois, nenhuma % volta e nada muda no banco. G-A: 200 nos dois. Ver o próprio caixa (CT-08-13) não dá acesso à %. | API |
 
 (Profissional tentando mudar a %: CT-00-16.)
 
@@ -441,7 +446,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-00-12 | P1 logado. P2 tem horários. | Ler a agenda de P2 e um horário de P2 pelo id. | 403. Nenhum dado de P2 volta. | API |
 | CT-00-13 | P1 logado. | Marcar, lançar balcão e bloquear na agenda de P2. | 403. Nada criado. | API |
 | CT-00-14 | P1 logado. P2 tem horário `agendado`. | Concluir, marcar falta e cancelar esse horário. | 403. Status continua `agendado`. | API |
-| CT-00-15 | P1 logado. | Pedir o caixa da casa e o ganho de P2. | 403 (mesmo teste do CT-08-10, aqui como regra de papel). | API |
+| CT-00-15 | P1 logado. | Pedir o ganho de P2 (`GET /cash/professionals/{id de P2}`) e o caixa (`GET /cash`). | Ganho de P2: 403 (mesmo teste do CT-08-10). Caixa: 200 só com a linha de P1, sem total da casa nem linhas dos outros (CT-08-13). | API |
 | CT-00-16 | P1 logado. | Mudar a própria % e a % de P2. | 403. As duas % não mudam. | API |
 | CT-00-17 | P1 logado. | Mudar preço e duração de um serviço, criar serviço, incluir e desativar profissional. | 403. Nada muda. | API |
 | CT-00-18 | P1 logado. | Mudar expediente ou folga de P1 e de P2. | 403. Nada muda. | API |
@@ -450,7 +455,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-00-21 | G-P2 (gerente e profissional). | Abrir a própria agenda, a agenda de P1 e a Gerência. | Aparece como profissional na agenda e na página do cliente, e tem tudo do gerente. | API + FLU |
 | CT-00-22 | G-A (só gerente). | Abrir a agenda e a página do cliente. | Não aparece como profissional nem recebe agendamento. | API |
 | CT-00-23 | P1 logado no app Casa. | Procurar Gerência, caixa da casa, preços, expediente e outros profissionais. | Não aparecem na tela. (A tela é só conforto; o que vale são os testes de servidor acima.) | FLU |
-| CT-00-24 | OpenAPI com as rotas marcadas por papel. | **Varredura:** um teste chama toda rota só do gerente com token de P1. | 403 em todas. Rota nova entra na varredura sozinha. | API |
+| CT-00-24 | OpenAPI com as rotas marcadas por papel. | **Varredura:** um teste chama toda rota só do gerente com token de P1, inclusive `GET` e `PUT /commission`. **Ficam fora:** `GET /cash` e `GET /cash/professionals/{id}`, que dão 200 filtrado pro profissional (cobertas pelo CT-08-10 e pelo CT-08-13 a CT-08-15). | 403 em todas as rotas da varredura. Rota nova entra na varredura sozinha. | API |
 
 **Isolamento multi-tenant**
 
@@ -568,7 +573,7 @@ A QA só aprova quando **todos** valem:
 
 ## Perguntas em aberto
 
-Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada).
+Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel, com o profissional vendo só a própria linha (regra de 07/10).
 
 Estas continuam vagas demais para virar um teste com resultado esperado claro. Os casos que dependem delas estão marcados acima.
 
@@ -590,6 +595,7 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 9. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
 10. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
 11. **Mesmo identificador de pedido com dados diferentes:** devolve o primeiro resultado ou dá erro? (CT-00-08)
+12. **Parte da casa na linha do profissional:** no próprio caixa, o profissional pode ver quanto a casa ficou dos atendimentos **dele** (no CT-08-03, R$ 54,00), ou vê só o ganho dele? Hoje o contrato devolve `shopCents` na linha. (CT-08-13, CT-08-14)
 
 ## 11. Resumo dos casos
 
@@ -606,9 +612,9 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 | CT-07 | (7) Expediente e folgas | 7 |
 | CT-17 | (17) Clientes | 15 |
 | CT-10 | (10) Preços, serviços e profissionais | 9 |
-| CT-08 | (8) Caixa do mês | 12 |
-| CT-20 | (20) Gerência | 9 |
+| CT-08 | (8) Caixa do mês | 15 |
+| CT-20 | (20) Gerência | 10 |
 | CT-09 | (9) Visual | 10 |
 | CT-13 | (13) Nome CortaAqui | 3 |
 | CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 42 |
-| **Total** | | **207** |
+| **Total** | | **211** |
