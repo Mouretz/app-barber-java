@@ -804,6 +804,7 @@ paths:
               schema: { $ref: '#/components/schemas/CommissionSettings' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [Gerência]
       operationId: replaceCommission
@@ -813,6 +814,11 @@ paths:
         própria usa o padrão da casa. Vale só para o que for concluído depois; o caixa
         antigo não muda. O padrão ao criar a barbearia é 60% para o profissional e 40%
         para a casa.
+
+        Troca tudo: quem não vier em `professionals` volta a usar o padrão. Campo
+        faltando, número com casa decimal, valor fora de 0 a 100, profissional repetido
+        ou que não é desta barbearia dão 422 `VALIDATION_ERROR`. Se qualquer item falhar,
+        nada é gravado.
       security: [{ staffToken: [] }]
       requestBody:
         required: true
@@ -827,6 +833,7 @@ paths:
               schema: { $ref: '#/components/schemas/CommissionSettings' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /barbershops/{barbershopId}/cash:
     parameters:
@@ -838,8 +845,10 @@ paths:
       description: |
         Conta só agendamentos `COMPLETED` cujo `startAt` cai no mês (hora de Brasília),
         usando o preço e as % gravados em cada agendamento. Falta e cancelado não entram;
-        balcão entra normalmente. Gerente vê todos; profissional recebe só a própria linha
-        em `byProfessional`, e `totals` igual a ela.
+        balcão entra normalmente. Gerente vê todos (ativos, mesmo zerados, e desativados
+        que atenderam no mês); profissional recebe só a própria linha em `byProfessional`,
+        e `totals` igual a ela, sem o campo `shopCents`. Mês fora de AAAA-MM dá 422
+        `VALIDATION_ERROR`.
       security: [{ staffToken: [] }]
       parameters:
         - $ref: '#/components/parameters/Month'
@@ -850,6 +859,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MonthlyCash' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /barbershops/{barbershopId}/cash/professionals/{professionalId}:
     parameters:
@@ -859,6 +869,10 @@ paths:
       tags: [Gerência]
       operationId: getProfessionalCash
       summary: Atendimentos concluídos de um profissional no mês (gerente, ou o próprio profissional)
+      description: |
+        Mesmas regras do `/cash`. Profissional pedindo a de outro dá 403. Para o
+        profissional que não é gerente, `totals` vem sem `shopCents` e os agendamentos
+        vêm sem `shopPercent`. Profissional desativado continua com o histórico.
       security: [{ staffToken: [] }]
       parameters:
         - $ref: '#/components/parameters/Month'
@@ -1366,11 +1380,14 @@ components:
               - $ref: '#/components/schemas/CommissionSplit'
     CashTotals:
       type: object
-      required: [completedCount, grossCents, shopCents, professionalCents]
+      required: [completedCount, grossCents, professionalCents]
       properties:
         completedCount: { type: integer, minimum: 0 }
         grossCents: { type: integer, minimum: 0 }
-        shopCents: { type: integer, minimum: 0 }
+        shopCents:
+          type: integer
+          minimum: 0
+          description: Parte da casa. Só o gerente recebe. Para o profissional que não é gerente o campo não vem (nem `null`, nem zero), no `/cash` e no `/cash/professionals/{professionalId}`.
         professionalCents:
           type: integer
           minimum: 0
