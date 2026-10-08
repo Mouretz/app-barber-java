@@ -82,6 +82,20 @@ public class BookingQueries {
                 .query(BookingQueries::map).list();
     }
 
+    /**
+     * Caixa (Eng. Dados): concluídos do profissional com início em [from, to). O mês é o do
+     * início do atendimento em Brasília, não o da conclusão.
+     */
+    public List<BookingRow> completedForProfessional(UUID barbershopId, UUID professionalId, Instant from, Instant to) {
+        return db.sql(SELECT + """
+                         WHERE b.barbershop_id = :b AND b.professional_id = :p AND b.status = 'COMPLETED'
+                           AND b.start_at >= :from AND b.start_at < :to
+                         ORDER BY b.start_at, b.created_at
+                        """)
+                .param("b", barbershopId).param("p", professionalId).param("from", SpTime.db(from)).param("to", SpTime.db(to))
+                .query(BookingQueries::map).list();
+    }
+
     /** Últimos agendamentos da ficha; {@code onlyProfessional} != null limita à agenda desse profissional. */
     public List<BookingRow> recentForProfile(UUID barbershopId, UUID profileId, UUID onlyProfessional, int limit) {
         return db.sql(SELECT + """
