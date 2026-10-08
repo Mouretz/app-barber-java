@@ -41,8 +41,21 @@ class AppConfig {
 
   bool get isMock => dataSource == DataSource.mock;
 
-  /// Valor desconhecido cai no mock: o APK de teste nunca tenta um servidor sem querer.
+  /// Só aceita `mock` ou `api`. Qualquer outro valor (inclusive vazio) é build mal
+  /// configurado e o app para na abertura, em vez de virar mock em silêncio e mostrar
+  /// o "Entrar como cliente novo" num APK que deveria falar com o servidor.
   static DataSource parseDataSource(String raw) {
-    return raw.trim().toLowerCase() == 'api' ? DataSource.api : DataSource.mock;
+    switch (raw.trim().toLowerCase()) {
+      case 'mock':
+        return DataSource.mock;
+      case 'api':
+        return DataSource.api;
+      default:
+        throw ArgumentError.value(
+          raw,
+          'DATA_SOURCE',
+          'use mock ou api no --dart-define',
+        );
+    }
   }
 }
