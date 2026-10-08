@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Navalha Cliente</title>
+<style>
+  :root{--bg:#0F1115;--card:#181B22;--card2:#1F232C;--line:#2A2F3A;--txt:#F2F2F2;--mut:#9AA1AD;--acc:#C8963E;--acc2:#E2B565;--ok:#3FB37F;--bad:#E05D5D}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,Roboto,"Segoe UI",sans-serif;font-size:16px}
+  header{padding:20px 18px 8px}
+  .brand{display:flex;align-items:center;gap:10px}
+  .logo{width:38px;height:38px;border-radius:12px;background:var(--acc);display:grid;place-items:center;font-size:20px}
+  h1{font-size:22px;margin:0}
+  .sub{color:var(--mut);font-size:14px;margin-top:2px}
+  nav{display:flex;gap:8px;padding:10px 18px;position:sticky;top:0;background:var(--bg);z-index:5}
+  nav button{flex:1;padding:11px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--mut);font-weight:600;font-size:15px}
+  nav button.on{background:var(--acc);color:#1a1307;border-color:var(--acc)}
+  main{padding:4px 18px 24px}
+  h2{font-size:16px;margin:22px 0 10px;color:var(--acc2);letter-spacing:.3px}
+  .svc{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-radius:14px;background:var(--card);border:2px solid transparent;margin-bottom:10px}
+  .svc.on{border-color:var(--acc);background:var(--card2)}
+  .svc b{display:block;font-size:16px}.svc small{color:var(--mut)}
+  .price{font-weight:700;color:var(--acc2)}
+  .days{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
+  .days::-webkit-scrollbar{display:none}
+  .day{min-width:62px;padding:10px 6px;border-radius:14px;background:var(--card);text-align:center;border:2px solid transparent}
+  .day.on{border-color:var(--acc);background:var(--card2)}
+  .day .w{font-size:12px;color:var(--mut);text-transform:uppercase}
+  .day .d{font-size:20px;font-weight:700}
+  .day .m{font-size:12px;color:var(--mut)}
+  .slots{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .slot{padding:11px 0;border-radius:10px;background:var(--card);text-align:center;font-weight:600;border:2px solid transparent}
+  .slot.on{border-color:var(--acc);background:var(--acc);color:#1a1307}
+  .slot.off{opacity:.3;text-decoration:line-through}
+  label{display:block;font-size:14px;color:var(--mut);margin:12px 0 6px}
+  input{width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--txt);font-size:16px;outline:none}
+  input:focus{border-color:var(--acc)}
+  .btn{width:100%;padding:16px;border:0;border-radius:14px;background:var(--acc);color:#1a1307;font-weight:700;font-size:17px;margin-top:20px}
+  .btn:disabled{opacity:.4}
+  .ghost{background:transparent;border:1px solid var(--bad);color:var(--bad);padding:9px 14px;border-radius:10px;font-weight:600;font-size:14px}
+  .resumo{background:var(--card2);border-radius:14px;padding:14px 16px;margin-top:18px;color:var(--mut);font-size:14px;line-height:1.6}
+  .resumo b{color:var(--txt)}
+  .item{background:var(--card);border-radius:14px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .item .t{font-weight:700;font-size:16px}.item .s{color:var(--mut);font-size:14px;margin-top:3px}
+  .tag{font-size:12px;padding:3px 8px;border-radius:20px;background:var(--line);color:var(--mut);display:inline-block;margin-top:6px}
+  .tag.ok{background:rgba(63,179,127,.15);color:var(--ok)}.tag.bad{background:rgba(224,93,93,.15);color:var(--bad)}
+  .vazio{color:var(--mut);text-align:center;padding:30px 10px}
+  .toast{position:fixed;left:18px;right:18px;bottom:24px;background:var(--ok);color:#06140d;padding:14px;border-radius:12px;font-weight:600;text-align:center;transform:translateY(calc(100% + 140px));transition:.25s;z-index:20}
+  .toast.show{transform:none}.toast.err{background:var(--bad);color:#fff}
+  footer{color:var(--mut);font-size:12px;text-align:center;padding:10px 18px 24px}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="logo">✂️</div><div><h1>Navalha</h1><div class="sub">Marque seu horário na barbearia</div></div></div>
+</header>
+<nav>
+  <button id="tabMarcar" class="on" onclick="aba('marcar')">Agendar</button>
+  <button id="tabMeus" onclick="aba('meus')">Meus horários</button>
+</nav>
+<main>
+  <section id="marcar">
+    <h2>1. Escolha o serviço</h2>
+    <div id="servicos"></div>
+    <h2>2. Escolha o dia</h2>
+    <div class="days" id="dias"></div>
+    <h2>3. Escolha o horário</h2>
+    <div class="slots" id="slots"></div>
+    <h2>4. Seus dados</h2>
+    <label for="nome">Nome</label>
+    <input id="nome" autocomplete="name" placeholder="Seu nome">
+    <label for="tel">Telefone</label>
+    <input id="tel" type="tel" inputmode="tel" placeholder="(11) 99999-9999">
+    <div class="resumo" id="resumo"></div>
+    <button class="btn" id="confirmar" onclick="confirmar()">Confirmar agendamento</button>
+  </section>
+  <section id="meus" class="hide">
+    <h2>Próximos</h2><div id="proximos"></div>
+    <h2>Histórico</h2><div id="historico"></div>
+  </section>
+</main>
+<footer>versão de teste: dados ficam neste celular</footer>
+<div class="toast" id="toast"></div>
+<script>
+const SERVICOS=[
+  {id:'corte',nome:'Corte',preco:40,min:30},
+  {id:'barba',nome:'Barba',preco:30,min:30},
+  {id:'combo',nome:'Corte + Barba',preco:60,min:60}
+];
+const CHAVE='navalha.agendamentos', CHAVE_CLI='navalha.cliente';
+const pad=n=>String(n).padStart(2,'0');
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const brl=v=>'R$ '+v.toFixed(2).replace('.',',');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const SEM=['dom','seg','ter','qua','qui','sex','sáb'], MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function lerData(s){const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)}
+function dataBonita(s){const d=lerData(s);return SEM[d.getDay()]+', '+d.getDate()+' '+MES[d.getMonth()]}
+function carregar(){try{return JSON.parse(localStorage.getItem(CHAVE))||[]}catch(e){return[]}}
+function salvar(l){localStorage.setItem(CHAVE,JSON.stringify(l))}
+const HORAS=[];for(let h=9;h<19;h++){HORAS.push(pad(h)+':00');HORAS.push(pad(h)+':30')}
+const minutos=h=>{const [a,b]=h.split(':').map(Number);return a*60+b};
+
+let st={servico:'corte',dia:iso(new Date()),hora:null};
+
+function toast(msg,err){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(err?' err':'');clearTimeout(t._t);t._t=setTimeout(()=>t.className='toast',2400)}
+function aba(a){
+  document.getElementById('marcar').classList.toggle('hide',a!=='marcar');
+  document.getElementById('meus').classList.toggle('hide',a!=='meus');
+  document.getElementById('tabMarcar').classList.toggle('on',a==='marcar');
+  document.getElementById('tabMeus').classList.toggle('on',a==='meus');
+  if(a==='meus')renderMeus(); window.scrollTo(0,0);
+}
+function servico(){return SERVICOS.find(s=>s.id===st.servico)}
+function ocupado(dia,ini,dur,ignorarId){
+  return carregar().some(a=>a.status==='marcado'&&a.data===dia&&a.id!==ignorarId&&
+    minutos(a.hora)<ini+dur&&ini<minutos(a.hora)+a.min);
+}
+function livre(dia,hora){
+  const ini=minutos(hora),dur=servico().min;
+  if(ini+dur>19*60)return false;
+  if(dia===iso(new Date())){const n=new Date();if(ini<=n.getHours()*60+n.getMinutes())return false}
+  return !ocupado(dia,ini,dur);
+}
+function renderServicos(){
+  document.getElementById('servicos').innerHTML=SERVICOS.map(s=>
+    `<div class="svc ${s.id===st.servico?'on':''}" onclick="st.servico='${s.id}';st.hora=null;render()">
+      <div><b>${s.nome}</b><small>${s.min} min</small></div><div class="price">${brl(s.preco)}</div></div>`).join('');
+}
+function renderDias(){
+  const box=document.getElementById('dias');let h='';const hoje=new Date();
+  for(let i=0;i<14;i++){const d=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate()+i);const k=iso(d);
+    h+=`<div class="day ${k===st.dia?'on':''}" onclick="st.dia='${k}';st.hora=null;render()">
+      <div class="w">${i===0?'hoje':SEM[d.getDay()]}</div><div class="d">${d.getDate()}</div><div class="m">${MES[d.getMonth()]}</div></div>`}
+  const x=box.scrollLeft;box.innerHTML=h;box.scrollLeft=x;
+}
+function renderSlots(){
+  const l=HORAS.filter(h=>minutos(h)+servico().min<=19*60);
+  const html=l.map(h=>{const ok=livre(st.dia,h);
+    return `<div class="slot ${ok?'':'off'} ${st.hora===h?'on':''}" ${ok?`onclick="st.hora='${h}';render()"`:''}>${h}</div>`}).join('');
+  document.getElementById('slots').innerHTML=html||'<div class="vazio">Sem horários</div>';
+}
+function renderResumo(){
+  const s=servico();
+  document.getElementById('resumo').innerHTML=`<b>${s.nome}</b> · ${brl(s.preco)}<br>${dataBonita(st.dia)} · ${st.hora?'<b>'+st.hora+'</b>':'escolha um horário'}`;
+}
+function render(){renderServicos();renderDias();renderSlots();renderResumo()}
+function confirmar(){
+  const nome=document.getElementById('nome').value.trim(),tel=document.getElementById('tel').value.trim();
+  if(!st.hora)return toast('Escolha um horário',1);
+  if(nome.length<2)return toast('Digite seu nome',1);
+  if(tel.replace(/\D/g,'').length<8)return toast('Digite um telefone válido',1);
+  if(!livre(st.dia,st.hora)){st.hora=null;render();return toast('Esse horário acabou de ficar indisponível',1)}
+  const s=servico(),l=carregar();
+  l.push({id:Date.now().toString(36),servico:s.nome,preco:s.preco,min:s.min,data:st.dia,hora:st.hora,nome,telefone:tel,status:'marcado',criado:new Date().toISOString()});
+  salvar(l);localStorage.setItem(CHAVE_CLI,JSON.stringify({nome,tel}));
+  toast('Horário confirmado: '+dataBonita(st.dia)+' às '+st.hora);
+  st.hora=null;render();setTimeout(()=>aba('meus'),900);
+}
+function cancelar(id,btn){
+  if(!btn.dataset.ok){btn.dataset.ok=1;btn.textContent='Confirmar?';setTimeout(()=>{if(btn.isConnected){delete btn.dataset.ok;btn.textContent='Cancelar'}},3000);return}
+  const l=carregar();const a=l.find(x=>x.id===id);if(a)a.status='cancelado';salvar(l);toast('Horário cancelado');renderMeus();render();
+}
+function card(a,podeCancelar){
+  const tag=a.status==='atendido'?'<span class="tag ok">atendido</span>':a.status==='cancelado'?'<span class="tag bad">cancelado</span>':'<span class="tag">confirmado</span>';
+  return `<div class="item"><div><div class="t">${dataBonita(a.data)} · ${a.hora}</div><div class="s">${esc(a.servico)} · ${brl(a.preco)}</div>${tag}</div>
+    ${podeCancelar?`<button class="ghost" onclick="cancelar('${a.id}',this)">Cancelar</button>`:''}</div>`;
+}
+function renderMeus(){
+  const agora=new Date(),l=carregar().sort((a,b)=>(a.data+a.hora).localeCompare(b.data+b.hora));
+  const fut=a=>lerData(a.data).getTime()+minutos(a.hora)*60000>=agora.getTime();
+  const prox=l.filter(a=>a.status==='marcado'&&fut(a));
+  const hist=l.filter(a=>!(a.status==='marcado'&&fut(a))).reverse();
+  document.getElementById('proximos').innerHTML=prox.map(a=>card(a,true)).join('')||'<div class="vazio">Nenhum horário marcado ainda.</div>';
+  document.getElementById('historico').innerHTML=hist.map(a=>card(a,false)).join('')||'<div class="vazio">Nada por aqui.</div>';
+}
+try{const c=JSON.parse(localStorage.getItem(CHAVE_CLI));if(c){document.getElementById('nome').value=c.nome;document.getElementById('tel').value=c.tel}}catch(e){}
+// se hoje não tem mais horário livre, já abre no próximo dia com vaga
+for(let i=0;i<14&&!HORAS.some(h=>livre(st.dia,h));i++){const d=lerData(st.dia);d.setDate(d.getDate()+1);st.dia=iso(d)}
+render();
+</script>
+</body>
+</html>

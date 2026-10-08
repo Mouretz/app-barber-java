@@ -27,15 +27,11 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Montar o projeto
+      - name: Conferir o projeto
         run: |
-          mkdir -p /tmp/navalha-src
-          cat navalha-android/payload/part-*.b64 | tr -d '\n' | base64 -d > /tmp/navalha.tar.gz
-          echo "$(cat navalha-android/payload/SHA256)  /tmp/navalha.tar.gz" | sha256sum -c
-          tar -xzf /tmp/navalha.tar.gz -C /tmp/navalha-src
-          test -f /tmp/navalha-src/app/build.gradle
-          test -f /tmp/navalha-src/app/src/cliente/assets/index.html
-          test -f /tmp/navalha-src/app/src/barbeiro/assets/index.html
+          test -f navalha-android/app/build.gradle
+          test -f navalha-android/app/src/cliente/assets/index.html
+          test -f navalha-android/app/src/barbeiro/assets/index.html
 
       - name: Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -43,14 +39,14 @@ jobs:
           gradle-version: "8.10.2"
 
       - name: Gerar os APKs
-        working-directory: /tmp/navalha-src
+        working-directory: navalha-android
         run: gradle assembleDebug --no-daemon
 
       - name: Juntar os arquivos
         run: |
           mkdir -p dist
-          cp /tmp/navalha-src/app/build/outputs/apk/cliente/debug/app-cliente-debug.apk dist/Navalha-cliente.apk
-          cp /tmp/navalha-src/app/build/outputs/apk/barbeiro/debug/app-barbeiro-debug.apk dist/Navalha-barbeiro.apk
+          cp navalha-android/app/build/outputs/apk/cliente/debug/app-cliente-debug.apk dist/Navalha-cliente.apk
+          cp navalha-android/app/build/outputs/apk/barbeiro/debug/app-barbeiro-debug.apk dist/Navalha-barbeiro.apk
 
       - name: Artifact da Action
         uses: actions/upload-artifact@v4

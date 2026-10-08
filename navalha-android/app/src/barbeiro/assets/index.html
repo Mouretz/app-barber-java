@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Navalha Barbeiro</title>
+<style>
+  :root{--bg:#0F1115;--card:#181B22;--card2:#1F232C;--line:#2A2F3A;--txt:#F2F2F2;--mut:#9AA1AD;--acc:#3FB39A;--acc2:#7FD8C3;--gold:#E2B565;--ok:#3FB37F;--bad:#E05D5D}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,Roboto,"Segoe UI",sans-serif;font-size:16px}
+  header{padding:20px 18px 6px}
+  .brand{display:flex;align-items:center;gap:10px}
+  .logo{width:38px;height:38px;border-radius:12px;background:#2E7D6B;display:grid;place-items:center;font-size:20px}
+  h1{font-size:22px;margin:0}.sub{color:var(--mut);font-size:14px;margin-top:2px}
+  .datebar{display:flex;align-items:center;gap:8px;padding:12px 18px;position:sticky;top:0;background:var(--bg);z-index:5}
+  .datebar button{width:46px;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--txt);font-size:20px}
+  .datebar .mid{flex:1;text-align:center;position:relative}
+  .datebar .mid b{display:block;font-size:17px;text-transform:capitalize}
+  .datebar .mid small{color:var(--acc2);font-size:13px}
+  .datebar input{position:absolute;inset:0;opacity:0;width:100%}
+  main{padding:0 18px 24px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 14px}
+  .stat{background:var(--card);border-radius:14px;padding:12px;text-align:center}
+  .stat b{display:block;font-size:20px}.stat small{color:var(--mut);font-size:12px}
+  .row{display:flex;gap:12px;align-items:stretch;margin-bottom:8px}
+  .hr{width:52px;flex:none;color:var(--mut);font-weight:600;font-size:14px;padding-top:14px}
+  .box{flex:1;border-radius:14px;padding:12px 14px;background:var(--card)}
+  .box.livre{background:transparent;border:1px dashed var(--line);color:var(--mut);display:flex;align-items:center;justify-content:space-between;padding:10px 14px}
+  .box.livre button{background:transparent;border:0;color:var(--acc2);font-weight:600;font-size:14px}
+  .box.marcado{border-left:4px solid var(--gold)}
+  .box.atendido{border-left:4px solid var(--ok);opacity:.75}
+  .box.cancelado{border-left:4px solid var(--bad);opacity:.5}
+  .box .t{font-weight:700}.box .s{color:var(--mut);font-size:14px;margin-top:3px}
+  .box .s a{color:var(--acc2);text-decoration:none}
+  .acts{display:flex;gap:8px;margin-top:10px}
+  .acts button{flex:1;padding:10px;border-radius:10px;font-weight:600;font-size:14px;border:0}
+  .bok{background:var(--ok);color:#06140d}.bno{background:transparent;border:1px solid var(--bad)!important;color:var(--bad)}
+  .tag{font-size:12px;padding:3px 8px;border-radius:20px;display:inline-block;margin-top:6px}
+  .tag.ok{background:rgba(63,179,127,.15);color:var(--ok)}.tag.bad{background:rgba(224,93,93,.15);color:var(--bad)}
+  .fab{position:fixed;right:18px;bottom:22px;height:56px;padding:0 22px;border-radius:28px;border:0;background:var(--acc);color:#04201a;font-weight:700;font-size:16px;box-shadow:0 6px 20px rgba(0,0,0,.4);z-index:6}
+  .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10;display:none}
+  .sheet{position:fixed;left:0;right:0;bottom:0;background:var(--card2);border-radius:20px 20px 0 0;padding:20px 18px 26px;z-index:11;transform:translateY(105%);transition:.25s;max-height:92vh;overflow:auto}
+  .open .sheet-bg{display:block}.open .sheet{transform:none}
+  .sheet h2{margin:0 0 6px;font-size:18px}
+  label{display:block;font-size:14px;color:var(--mut);margin:12px 0 6px}
+  input,select{width:100%;padding:13px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--txt);font-size:16px;outline:none}
+  .two{display:flex;gap:10px}.two>div{flex:1}
+  .btn{width:100%;padding:15px;border:0;border-radius:14px;background:var(--acc);color:#04201a;font-weight:700;font-size:16px;margin-top:18px}
+  .btn2{width:100%;padding:13px;border:0;background:transparent;color:var(--mut);font-size:15px;margin-top:6px}
+  .toast{position:fixed;left:18px;right:18px;bottom:90px;background:var(--ok);color:#06140d;padding:14px;border-radius:12px;font-weight:600;text-align:center;transform:translateY(calc(100% + 200px));transition:.25s;z-index:20}
+  .toast.show{transform:none}.toast.err{background:var(--bad);color:#fff}
+  footer{color:var(--mut);font-size:12px;text-align:center;padding:6px 18px 90px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="logo">💈</div><div><h1>Navalha · Agenda</h1><div class="sub">Área do barbeiro</div></div></div>
+</header>
+<div class="datebar">
+  <button onclick="mudarDia(-1)" aria-label="Dia anterior">‹</button>
+  <div class="mid"><b id="diaTxt"></b><small id="diaSub"></small>
+    <input type="date" id="diaPick" onchange="if(this.value){dia=this.value;render()}"></div>
+  <button onclick="mudarDia(1)" aria-label="Próximo dia">›</button>
+</div>
+<main>
+  <div class="stats">
+    <div class="stat"><b id="sMarc">0</b><small>a atender</small></div>
+    <div class="stat"><b id="sAtend">0</b><small>atendidos</small></div>
+    <div class="stat"><b id="sFat">R$ 0</b><small>faturado</small></div>
+  </div>
+  <div id="agenda"></div>
+</main>
+<footer>versão de teste: dados ficam neste celular</footer>
+<button class="fab" onclick="abrirForm()">+ Novo horário</button>
+
+<div id="sheetWrap">
+  <div class="sheet-bg" onclick="fecharForm()"></div>
+  <div class="sheet">
+    <h2>Cadastrar horário</h2>
+    <label for="fNome">Nome do cliente</label><input id="fNome" placeholder="Nome">
+    <label for="fTel">Telefone (opcional)</label><input id="fTel" type="tel" inputmode="tel" placeholder="(11) 99999-9999">
+    <label for="fServ">Serviço</label><select id="fServ"></select>
+    <div class="two">
+      <div><label for="fData">Dia</label><input id="fData" type="date"></div>
+      <div><label for="fHora">Horário</label><select id="fHora"></select></div>
+    </div>
+    <button class="btn" onclick="salvarForm()">Salvar na agenda</button>
+    <button class="btn2" onclick="fecharForm()">Fechar</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const SERVICOS=[
+  {id:'corte',nome:'Corte',preco:40,min:30},
+  {id:'barba',nome:'Barba',preco:30,min:30},
+  {id:'combo',nome:'Corte + Barba',preco:60,min:60}
+];
+const CHAVE='navalha.agendamentos';
+const pad=n=>String(n).padStart(2,'0');
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const brl=v=>'R$ '+(Number.isInteger(v)?v:v.toFixed(2)).toString().replace('.',',');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const SEM=['domingo','segunda','terça','quarta','quinta','sexta','sábado'],MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const lerData=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+const minutos=h=>{const [a,b]=h.split(':').map(Number);return a*60+b};
+const HORAS=[];for(let h=9;h<19;h++){HORAS.push(pad(h)+':00');HORAS.push(pad(h)+':30')}
+function carregar(){try{return JSON.parse(localStorage.getItem(CHAVE))||[]}catch(e){return[]}}
+function salvar(l){localStorage.setItem(CHAVE,JSON.stringify(l))}
+let dia=iso(new Date());
+
+function toast(msg,err){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(err?' err':'');clearTimeout(t._t);t._t=setTimeout(()=>t.className='toast',2400)}
+function mudarDia(n){const d=lerData(dia);d.setDate(d.getDate()+n);dia=iso(d);render()}
+function ocupado(d,ini,dur){return carregar().some(a=>a.status==='marcado'&&a.data===d&&minutos(a.hora)<ini+dur&&ini<minutos(a.hora)+a.min)}
+
+function render(){
+  const d=lerData(dia),hoje=iso(new Date());
+  const amanha=new Date();amanha.setDate(amanha.getDate()+1);
+  document.getElementById('diaTxt').textContent=SEM[d.getDay()]+', '+d.getDate()+' '+MES[d.getMonth()];
+  document.getElementById('diaSub').textContent=dia===hoje?'hoje · toque para escolher a data':dia===iso(amanha)?'amanhã · toque para escolher a data':'toque para escolher a data';
+  document.getElementById('diaPick').value=dia;
+  const doDia=carregar().filter(a=>a.data===dia).sort((a,b)=>a.hora.localeCompare(b.hora)||(a.status==='marcado'?-1:1));
+  document.getElementById('sMarc').textContent=doDia.filter(a=>a.status==='marcado').length;
+  const at=doDia.filter(a=>a.status==='atendido');
+  document.getElementById('sAtend').textContent=at.length;
+  document.getElementById('sFat').textContent=brl(at.reduce((s,a)=>s+a.preco,0));
+  let html='',coberto=0;
+  for(const h of HORAS){
+    const m=minutos(h);
+    const aqui=doDia.filter(a=>a.hora===h);
+    if(aqui.length){
+      aqui.forEach((a,i)=>{html+=`<div class="row"><div class="hr">${i?'':h}</div>${caixa(a)}</div>`;
+        if(a.status==='marcado')coberto=Math.max(coberto,m+a.min)});
+    }else if(m>=coberto){
+      html+=`<div class="row"><div class="hr">${h}</div><div class="box livre"><span>Livre</span><button onclick="abrirForm('${h}')">+ marcar</button></div></div>`;
+    }
+  }
+  document.getElementById('agenda').innerHTML=html;
+}
+function caixa(a){
+  const tel=a.telefone?` · <a href="tel:${esc(a.telefone.replace(/[^\d+]/g,''))}">${esc(a.telefone)}</a>`:'';
+  let fim=minutos(a.hora)+a.min;fim=pad(Math.floor(fim/60))+':'+pad(fim%60);
+  let rod='';
+  if(a.status==='marcado')rod=`<div class="acts"><button class="bok" onclick="status('${a.id}','atendido',this)">✓ Atendido</button><button class="bno" onclick="status('${a.id}','cancelado',this)">Cancelar</button></div>`;
+  else rod=`<span class="tag ${a.status==='atendido'?'ok':'bad'}">${a.status}</span>`;
+  return `<div class="box ${a.status}"><div class="t">${esc(a.nome)}</div><div class="s">${esc(a.servico)} · ${brl(a.preco)} · até ${fim}${tel}</div>${rod}</div>`;
+}
+function status(id,novo,btn){
+  if(novo==='cancelado'&&!btn.dataset.ok){btn.dataset.ok=1;btn.textContent='Confirmar?';setTimeout(()=>{if(btn.isConnected){delete btn.dataset.ok;btn.textContent='Cancelar'}},3000);return}
+  const l=carregar(),a=l.find(x=>x.id===id);if(!a)return;a.status=novo;salvar(l);
+  toast(novo==='atendido'?'Marcado como atendido':'Horário cancelado');render();
+}
+function opcoesHora(){
+  const s=SERVICOS.find(x=>x.id===document.getElementById('fServ').value),d=document.getElementById('fData').value,sel=document.getElementById('fHora'),atual=sel.value;
+  sel.innerHTML=HORAS.filter(h=>minutos(h)+s.min<=19*60).map(h=>{const ok=!ocupado(d,minutos(h),s.min);return `<option value="${h}" ${ok?'':'disabled'}>${h}${ok?'':' (ocupado)'}</option>`}).join('');
+  const primeiro=[...sel.options].find(o=>!o.disabled);
+  if(atual&&[...sel.options].some(o=>o.value===atual&&!o.disabled))sel.value=atual;else if(primeiro)sel.value=primeiro.value;
+}
+function abrirForm(h){
+  document.getElementById('fServ').innerHTML=SERVICOS.map(s=>`<option value="${s.id}">${s.nome} — ${brl(s.preco)} (${s.min} min)</option>`).join('');
+  document.getElementById('fData').value=dia;document.getElementById('fNome').value='';document.getElementById('fTel').value='';
+  document.getElementById('fHora').innerHTML='';opcoesHora();if(h)document.getElementById('fHora').value=h;opcoesHora();
+  document.getElementById('sheetWrap').className='open';
+}
+function fecharForm(){document.getElementById('sheetWrap').className=''}
+document.getElementById('fServ').onchange=opcoesHora;document.getElementById('fData').onchange=opcoesHora;
+function salvarForm(){
+  const nome=document.getElementById('fNome').value.trim(),tel=document.getElementById('fTel').value.trim(),
+    s=SERVICOS.find(x=>x.id===document.getElementById('fServ').value),d=document.getElementById('fData').value,h=document.getElementById('fHora').value;
+  if(nome.length<2)return toast('Digite o nome do cliente',1);
+  if(!d||!h)return toast('Escolha dia e horário',1);
+  if(ocupado(d,minutos(h),s.min))return toast('Esse horário já está ocupado',1);
+  const l=carregar();l.push({id:Date.now().toString(36),servico:s.nome,preco:s.preco,min:s.min,data:d,hora:h,nome,telefone:tel,status:'marcado',origem:'balcao',criado:new Date().toISOString()});
+  salvar(l);fecharForm();dia=d;render();toast('Horário salvo: '+h);
+}
+render();
+</script>
+</body>
+</html>
