@@ -38,22 +38,22 @@ class ValidationErrorsIT extends DomainTest {
     @Test
     @DisplayName("Texto onde vai número e 60.5 em campo inteiro: 422 com fields apontando o campo")
     void wrongNumberType() {
-        assertField(postService("{\"name\":\"Corte X\":\"durationMinutes\":30,\"priceCents\":\"abc\"}"), "priceCents");
-        assertField(postService("{\"name\":\"Corte X\":\"durationMinutes\":30.5,\"priceCents\":4000}"), "durationMinutes");
-        assertField(postService("{\"name\":\"Corte X\":\"durationMinutes\":\"30\",\"priceCents\":4000}"), "durationMinutes");
+        assertField(postService("{\"name\":\"Corte X\",\"durationMinutes\":30,\"priceCents\":\"abc\"}"), "priceCents");
+        assertField(postService("{\"name\":\"Corte X\",\"durationMinutes\":30.5,\"priceCents\":4000}"), "durationMinutes");
+        assertField(postService("{\"name\":\"Corte X\",\"durationMinutes\":\"30\",\"priceCents\":4000}"), "durationMinutes");
         assertThat(count("SELECT count(*) FROM services WHERE name = 'Corte X'")).isZero();
     }
 
     @Test
     @DisplayName("UUID e data inválidos no corpo, e tipo errado em campo aninhado: fields com o caminho do campo")
     void wrongTypesInBooking() {
-        String client = "\"client\":{\"name\":\"Ana\":\"phone\":\"11911112222\"}";
+        String client = "\"client\":{\"name\":\"Ana\",\"phone\":\"11911112222\"}";
         assertField(postBooking("{\"serviceId\":\"nao-e-uuid\",\"professionalId\":\"" + w.p1
                 + "\",\"startAt\":\"" + sp("2026-10-08T10:00") + "\"," + client + "}"), "serviceId");
         assertField(postBooking("{\"serviceId\":\"" + w.corte + "\",\"professionalId\":\"" + w.p1
                 + "\",\"startAt\":\"amanhã\"," + client + "}"), "startAt");
         assertField(postBooking("{\"serviceId\":\"" + w.corte + "\",\"professionalId\":\"" + w.p1
-                + "\",\"startAt\":\"" + sp("2026-10-08T10:00") + "\",\"client\":{\"name\":\"Ana\":\"phone\":\"11911112222\",\"email\":{}}}"),
+                + "\",\"startAt\":\"" + sp("2026-10-08T10:00") + "\",\"client\":{\"name\":\"Ana\",\"phone\":\"11911112222\",\"email\":{}}}"),
                 "client.email");
         assertThat(count("SELECT count(*) FROM bookings")).isZero();
     }
