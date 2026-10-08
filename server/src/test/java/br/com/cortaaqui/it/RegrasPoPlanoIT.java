@@ -318,7 +318,7 @@ class RegrasPoPlanoIT extends DomainTest {
     // ------------------------------------------------------------------ 6: profissional desativado (por barbearia)
 
     @Test
-    @DisplayName("CT-10-11: desativado (só na A) faz login com a senha certa e leva o mesmo 401 da senha errada, sem token")
+    @DisplayName("CT-10-11: desativado na A, sem vínculo ativo em outra barbearia, faz login com a senha certa e leva o mesmo 401 da senha errada, sem token")
     void ct1011DeactivatedLoginIs401() {
         assertThat(login("p1@a.test", World.PASSWORD).status()).isEqualTo(200);
         assertThat(setActive(w.tGA, w.shopA, w.p1, false).status()).isEqualTo(200);
@@ -332,7 +332,7 @@ class RegrasPoPlanoIT extends DomainTest {
     }
 
     @Test
-    @DisplayName("CT-10-12: token emitido antes da desativação dá 401 na hora em /auth/me, na própria agenda e no bloquear; nada é criado")
+    @DisplayName("CT-10-12: só com vínculo na A, o token emitido antes da desativação dá 401 na hora em /auth/me, na própria agenda e no bloquear; nada é criado")
     void ct1012OldTokenIs401() {
         assertThat(get("/auth/me", w.tP1).status()).isEqualTo(200);
         assertThat(setActive(w.tGA, w.shopA, w.p1, false).status()).isEqualTo(200);
@@ -399,32 +399,66 @@ class RegrasPoPlanoIT extends DomainTest {
         assertThat(isActive(w.p1)).isFalse();
     }
 
-    @Test
-    @DisplayName("PO 08/10, desativação por barbearia: PX desativado na B leva 403 na B e continua 200 na A com o mesmo token; reativar devolve a B")
-    void deactivationIsPerBarbershop() {
-        assertThat(get("/barbershops/" + w.shopB + "/clients", w.tPX).status()).isEqualTo(200);
-        assertThat(setActive(w.tGB, w.shopB, w.px, false).status()).isEqualTo(200);
-
-        Res inB = get("/barbershops/" + w.shopB + "/clients", w.tPX);
-        assertThat(inB.status()).isEqualTo(403);
-        assertThat(inB.code()).isEqualTo("FORBIDDEN");
-        Res otherForbidden = send(req(HttpMethod.POST, "/barbershops/" + w.shopA + "/services").token(w.tP1)
+    /** Recusa de papel padrão (P1 criando serviço na A), para comparar o corpo do 403. */
+    private Res standardForbidden() {
+        Res r = send(req(HttpMethod.POST, "/barbershops/" + w.shopA + "/services").token(w.tP1)
                 .body(map("name", "X", "durationMinutes", 30, "priceCents", 100)));
-        assertThat(inB.body()).isEqualTo(otherForbidden.body()); // mesmo corpo das outras recusas de papel
-        assertThat(get("/barbershops/" + w.shopB + "/agenda?date=2026-10-08&professionalId=" + w.px, w.tPX).status())
-                .isEqualTo(403);
-        assertThat(block(w.tPX, w.shopB, w.px, "2026-10-08T10:00", "2026-10-08T10:30").status()).isEqualTo(403);
+        assertThat(r.status()).isEqualTo(403);
+        return r;
+    }
 
-        assertThat(get("/barbershops/" + w.shopA + "/clients", w.tPX).status()).isEqualTo(200);
+    private void assertForbiddenInB(Res r) {
+        assertThat(r.status()).as(r.toString()).isEqualTo(403);
+        assertThat(r.code()).isEqualTo("FORBIDDEN");
+        assertThat(r.body()).isEqualTo(standardForbidden().body());
+        assertThat(r.body().toString()).doesNotContain("Barbearia B", w.shopB.toString(), w.px.toString());
+    }
+
+    private void assertManagerRoutesInA(String token) {
+        assertThat(get("/barbershops/" + w.shopA + "/agenda?date=2026-10-08&professionalId=" + w.p1, token).status())
+                .isEqualTo(200);
+        assertThat(get("/barbershops/" + w.shopA + "/professionals", token).status()).isEqualTo(200);
+        assertThat(get("/barbershops/" + w.shopA + "/services", token).status()).isEqualTo(200);
+        assertThat(get("/barbershops/" + w.shopA + "/clients", token).status()).isEqualTo(200);
+    }
+
+    private void assertOwnRoutesInB(String token) {
+        assertForbiddenInB(get("/barbershops/" + w.shopB + "/agenda?date=2026-10-08&professionalId=" + w.px, token));
+        assertForbiddenInB(block(token, w.shopB, w.px, "2026-10-08T10:00", "2026-10-08T10:30"));
+        assertForbiddenInB(get("/barbershops/" + w.shopB + "/clients", token));
+        assertThat(count("SELECT count(*) FROM blocks")).isZero();
+    }
+
+    @Test
+    @DisplayName("CT-10-14: PX (gerente na A, profissional na B) desativado na B faz login (200), segue 200 na A e leva 403 FORBIDDEN na B, sem dado da B e sem criar nada")
+    void ct1014DeactivatedOnlyInB() {
+        assertThat(setActive(w.tGB, w.shopB, w.px, false).status()).isEqualTo(200);
+        Res session = login("px@test", World.PASSWORD);
+        assertThat(session.status()).as(session.toString()).isEqualTo(200);
+        String token = session.body().get("accessToken").asText();
+        assertThat(session.body().get("user").get("memberships")).hasSize(1);
+        assertThat(session.body().get("user").get("memberships").get(0).get("barbershopId").asText())
+                .isEqualTo(w.shopA.toString());
+        assertManagerRoutesInA(token);
+        assertOwnRoutesInB(token);
+        assertThat(get("/auth/me", token).status()).isEqualTo(200); // não é 401: a sessão continua
+    }
+
+    @Test
+    @DisplayName("CT-10-15: com o mesmo token de antes da desativação na B, a A continua 200 e a B dá 403; nenhum 401; reativar devolve a B")
+    void ct1015SameTokenAfterDeactivationInB() {
+        assertThat(get("/barbershops/" + w.shopB + "/agenda?date=2026-10-08&professionalId=" + w.px, w.tPX).status())
+                .isEqualTo(200);
+        assertThat(setActive(w.tGB, w.shopB, w.px, false).status()).isEqualTo(200);
+        assertManagerRoutesInA(w.tPX);
+        assertOwnRoutesInB(w.tPX);
         Res me = get("/auth/me", w.tPX);
         assertThat(me.status()).isEqualTo(200);
         assertThat(me.body().get("memberships")).hasSize(1);
-        assertThat(me.body().get("memberships").get(0).get("barbershopId").asText()).isEqualTo(w.shopA.toString());
-        assertThat(login("px@test", World.PASSWORD).status()).isEqualTo(200);
-        assertThat(count("SELECT count(*) FROM blocks")).isZero();
 
         assertThat(setActive(w.tGB, w.shopB, w.px, true).status()).isEqualTo(200);
-        assertThat(get("/barbershops/" + w.shopB + "/clients", w.tPX).status()).isEqualTo(200);
+        assertThat(get("/barbershops/" + w.shopB + "/agenda?date=2026-10-08&professionalId=" + w.px, w.tPX).status())
+                .isEqualTo(200);
         assertThat(get("/auth/me", w.tPX).body().get("memberships")).hasSize(2);
     }
 
