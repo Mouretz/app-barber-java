@@ -133,7 +133,7 @@ Contrastes conferidos (fórmula WCAG 2.1, valores truncados em 2 casas). AA pede
 
 ## 5. Dados de teste
 
-O seed oficial, igual no mock e no servidor, tem a **Barbearia Navalha**, os profissionais **Caio** e **Helena**, os serviços **Corte R$ 40,00 (30 min)**, **Barba R$ 30,00 (30 min)** e **Combo R$ 60,00 (60 min)** e pelo menos 1 cliente. Os ids são fixos e estão definidos em `app/lib/data/mock/mock_seed.dart` (branch do Front-end, ainda sem push). O seed do servidor usa os mesmos ids e valores (CT-00-33).
+O seed oficial, igual no mock e no servidor, tem a **Barbearia Navalha**, os profissionais **Caio** e **Helena**, os serviços **Corte R$ 40,00 (30 min)**, **Barba R$ 30,00 (30 min)** e **Combo R$ 60,00 (60 min)** e 2 clientes: **João**, que fica preso ao próprio aparelho que abriu o app (o Início mostra o próximo horário dele), e **Rafael**, preso a um aparelho fictício do seed (é com o telefone dele que se testa o `PHONE_ON_OTHER_DEVICE`). Os ids são fixos e estão definidos em `app/lib/data/mock/mock_seed.dart` (branch do Front-end, ainda sem push). O seed do servidor usa os mesmos ids e valores (CT-00-33).
 Os testes automáticos usam, além disso, dados próprios para não depender de detalhes do seed:
 
 | Nome no plano | O que é |
@@ -248,6 +248,7 @@ Formato do ID: `CT-<história>-<nº>`. O grupo `CT-00` reúne as regras transver
 | CT-04-21 | App Cliente, no mock e com servidor. | Abrir Agendar antes do 1º agendamento, fazer o 1º agendamento com T1, abrir Agendar de novo, fechar o app à força e abrir de novo. No mock, mandar um agendamento com K1 e T2 direto pelo repositório. | Antes do 1º agendamento, o campo de telefone é editável. Depois, ele aparece preenchido com T1 e **travado**, também depois de reabrir o app. O mock recusa K1 com T2 do mesmo jeito que o servidor. | FLU |
 | CT-04-22 | T1 ainda sem aparelho. | D1 (K1) faz o 1º agendamento com T1 e é recusado, um motivo por vez: limite de 2 (T1 já tem 2 futuros pelo app, depois de uma liberação), menos de 30 min (`TOO_SOON`), hoje + 14 (`DATE_OUT_OF_RANGE`) e horário ocupado (`SLOT_TAKEN`). Depois de cada recusa, D2 (K2) agenda um horário válido com T1. | Cada recusa de D1 tem o código próprio dela e **não prende K1**. O agendamento de D2 é aceito e K2 fica preso a T1. Depois disso, D1 cai no CT-04-15. | API |
 | CT-04-23 | T1 ainda sem aparelho. P1 tem 10:00 ocupado e 10:30 livre. | **Concorrência real (corrida):** ao mesmo tempo, D1 (K1) pede 10:00 (vai dar `SLOT_TAKEN`) e D2 (K2) pede 10:30 com T1. Repetir 20 vezes. | Em todas as rodadas, D1 é recusado por horário ocupado e não fica preso. D2 é aceito e K2 fica preso a T1, em qualquer ordem de chegada. | INT |
+| CT-04-24 | — | Chamar Meus horários, agendar e cancelar com `X-Client-Code` fora do formato UUID: `abc`, UUID sem hífens, UUID com 1 caractere a mais e header vazio. Fazer o mesmo no mock. | **Pendente do contrato:** 401, sem nenhum dado e sem gravar nada (o mock faz assim; o Back-end ainda não confirmou, e o contrato não diz o status pro código mal formado). | API + FLU |
 
 ### CT-14 · (14) Introdução
 
@@ -518,7 +519,7 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 
 | ID | Pré-condição | Passos | Resultado esperado | Nível |
 |---|---|---|---|---|
-| CT-00-33 | Seed do mock (`app/lib/data/mock/mock_seed.dart`) e seed do servidor. | Comparar os dois, campo a campo. | Os mesmos **ids fixos** e os mesmos valores nos dois: Barbearia Navalha, profissionais Caio e Helena, Corte R$ 40,00 (30 min), Barba R$ 30,00 (30 min), Combo R$ 60,00 (60 min) e o mesmo cliente. Qualquer diferença de id, nome, preço ou duração reprova. | FLU + INT |
+| CT-00-33 | Seed do mock (`app/lib/data/mock/mock_seed.dart`) e seed do servidor. | Comparar os dois, campo a campo. | Os mesmos **ids fixos** e os mesmos valores nos dois: Barbearia Navalha, profissionais Caio e Helena, Corte R$ 40,00 (30 min), Barba R$ 30,00 (30 min), Combo R$ 60,00 (60 min) e os mesmos clientes, João e Rafael (mesmos ids e telefones), com o Rafael já preso a um aparelho fictício. Qualquer diferença de id, nome, preço ou duração reprova. | FLU + INT |
 | CT-00-34 | Build mock. | Rodar os testes de widget com o cliente HTTP trocado por um que falha em qualquer chamada. | Nenhuma chamada de rede. Todas as telas funcionam. | FLU |
 | CT-00-35 | APK mock, celular em modo avião desde a instalação. | Seguir o checklist da seção 8. | Tudo funciona, sem tela de erro de rede. | MAN |
 | CT-00-36 | Mock. | Tentar no mock: encaixe duplo, Combo que não cabe no fim do expediente, 3º horário do mesmo telefone escrito de outro jeito, dia hoje + 14, 29 min de antecedência, cancelamento com menos de 2h, bloqueio fora da grade e balcão num slot já terminado. | O mock aplica as mesmas recusas do servidor, para o mouretz não ver um comportamento que depois muda. | FLU |
@@ -549,7 +550,7 @@ Rodar antes de mandar o APK pro mouretz. Celular Android real, **modo avião lig
 
 **App Cliente**
 - [ ] Intro: 3 telas, Próximo, Pular e o indicador de 3 pontos funcionam. Só o ponto ativo é amarelo; o rótulo e o "Próximo" são brancos.
-- [ ] Início: mostra o próximo horário do cliente do seed e a Barbearia Navalha.
+- [ ] Início: mostra o próximo horário do João (cliente do seed preso a este aparelho) e a Barbearia Navalha.
 - [ ] Página da barbearia: Corte R$ 40 (30 min), Barba R$ 30 (30 min) e Combo R$ 60 (60 min), e os profissionais Caio e Helena. Sem nota, avaliações, favoritar, pontos ou pagamento.
 - [ ] Agendar: o seletor mostra 14 dias (hoje até hoje + 13).
 - [ ] Os horários vão de 30 em 30 min. Filtrar manhã, tarde e noite separa certo (12:00 em tarde, 18:00 em noite).
@@ -559,7 +560,7 @@ Rodar antes de mandar o APK pro mouretz. Celular Android real, **modo avião lig
 - [ ] Tentar o 3º horário futuro com o mesmo telefone, escrito de outro jeito (ex.: com +55): recusa com mensagem clara.
 - [ ] Telefone com 9 dígitos ou com letras: recusa com mensagem clara.
 - [ ] Telefone com máscara (`(11) 98765-4321`) é aceito.
-- [ ] Em outro celular, agendar com o mesmo telefone do seed: aparece "Esse telefone já está em outro aparelho. Fale com a barbearia."
+- [ ] Agendar com o telefone do Rafael (preso a um aparelho fictício do seed): aparece "Esse telefone já está em outro aparelho. Fale com a barbearia." (409 `PHONE_ON_OTHER_DEVICE`; ver [pergunta 8](#perguntas-em-aberto)).
 - [ ] Depois do 1º agendamento, o campo de telefone fica travado.
 - [ ] Cancelar um horário com mais de 2h: some dos futuros e o horário volta a ficar livre.
 - [ ] Horário com menos de 2h: sem botão de cancelar.
@@ -642,13 +643,17 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 6. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
 7. **Mesmo identificador de pedido com dados diferentes:** devolve o primeiro resultado ou dá erro? (CT-00-08)
 
+**APK mock**
+
+8. **Rafael no mesmo aparelho do João:** o aparelho que abre o app já fica preso ao João, que tem horário, então o campo de telefone vem travado e um aparelho tem um telefone só. Como o testador digita o telefone do Rafael? E, se der para chamar, qual erro vem primeiro: `PHONE_ON_OTHER_DEVICE` (o telefone do Rafael está em outro aparelho) ou `DEVICE_PHONE_MISMATCH` (o código está preso ao João)? A mensagem esperada no checklist é a do `PHONE_ON_OTHER_DEVICE`. (checklist da seção 8)
+
 ## 11. Resumo dos casos
 
 | Grupo | História | Casos |
 |---|---|---|
 | CT-01 | (1) Agendar | 29 |
 | CT-03 | (3) Sem encaixe duplo | 11 |
-| CT-04 | (4) Meus horários | 23 |
+| CT-04 | (4) Meus horários | 24 |
 | CT-14 | (14) Introdução | 4 |
 | CT-15 | (15) Início | 4 |
 | CT-16 | (16) Página da barbearia | 5 |
@@ -662,4 +667,4 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 | CT-09 | (9) Visual | 11 |
 | CT-13 | (13) Nome CortaAqui | 3 |
 | CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 45 |
-| **Total** | | **243** |
+| **Total** | | **244** |
