@@ -12,6 +12,15 @@ import 'mock_persistence.dart';
 import 'mock_seed.dart';
 import 'mock_state.dart';
 
+/// O mesmo 401 para `X-Client-Code` ausente, fora do formato UUID,
+/// desconhecido (onde precisa existir) ou liberado pelo gerente: nunca 400 ou
+/// 422, e nada no corpo diz qual foi o caso, pra não revelar se o código existe.
+const kInvalidClientCode = ApiProblem(
+  ErrorCode.unauthorized,
+  status: 401,
+  title: 'Não autorizado',
+);
+
 /// Repositório do app Cliente sem servidor. Aplica as mesmas recusas que o
 /// servidor vai aplicar (CT-00-36), com os mesmos códigos de erro do contrato,
 /// para o comportamento não mudar quando o app ligar na API.
@@ -483,14 +492,12 @@ class MockClienteRepository implements ClienteRepository {
     }
   }
 
-  /// Código fora do formato (UUID) ou liberado pelo gerente: 401.
+  /// Código ausente (vazio), fora do formato UUID ou liberado pelo gerente:
+  /// 401. Vem antes de qualquer outra checagem (inclusive 404, 422 e pedido
+  /// repetido).
   static void _rejectInvalidCode(MockState s, String code) {
     if (!isUuid(code) || s.revokedCodes.contains(code)) {
-      throw const ApiProblem(
-        ErrorCode.unauthorized,
-        status: 401,
-        title: 'Código do aparelho inválido',
-      );
+      throw kInvalidClientCode;
     }
   }
 
@@ -522,13 +529,7 @@ class MockClienteRepository implements ClienteRepository {
     final client = id == null
         ? null
         : s.clients.where((c) => c.id == id).firstOrNull;
-    if (client == null) {
-      throw const ApiProblem(
-        ErrorCode.unauthorized,
-        status: 401,
-        title: 'Código do cliente inválido',
-      );
-    }
+    if (client == null) throw kInvalidClientCode;
     return client;
   }
 

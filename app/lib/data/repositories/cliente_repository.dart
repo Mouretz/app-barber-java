@@ -39,6 +39,10 @@ abstract class ClienteRepository {
   /// - telefone preso a outro aparelho: 409 `PHONE_ON_OTHER_DEVICE` (CT-04-15);
   /// - código preso a outro telefone: 409 `DEVICE_PHONE_MISMATCH`;
   /// - código liberado pelo gerente (troca de celular): 401 `UNAUTHORIZED`.
+  ///
+  /// `X-Client-Code` ausente (aqui, string vazia), fora do formato UUID,
+  /// desconhecido onde precisa existir (listar, cancelar) ou liberado: sempre o
+  /// mesmo 401 `UNAUTHORIZED`, conferido antes de qualquer outra regra.
   Future<Booking> createClientBooking({
     required String barbershopId,
     required String idempotencyKey,

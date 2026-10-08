@@ -862,6 +862,119 @@ void main() {
     });
   });
 
+  group('X-Client-Code inválido: sempre o mesmo 401 (contrato 9015a3d)', () {
+    late MockState seed;
+    const joaoNext = '6f1c2a10-0000-4000-8000-0000000000d1';
+    setUp(() async {
+      seed = MockSeed.build(clock.now());
+      repo = MockClienteRepository(clock: clock, initialState: seed);
+    });
+
+    final same401 = throwsA(
+      isA<ApiProblem>()
+          .having((p) => p.code, 'code', ErrorCode.unauthorized)
+          .having((p) => p.status, 'status', 401)
+          .having((p) => p.title, 'title', kInvalidClientCode.title)
+          .having((p) => p.fields, 'fields', isEmpty),
+    );
+
+    Future<void> revokeJoao() =>
+        repo.releaseClientDevice(barbershopId: shop, clientId: MockSeed.joaoId);
+
+    test('listar e cancelar: ausente, fora do formato, desconhecido e '
+        'liberado', () async {
+      await revokeJoao();
+      for (final code in [
+        '',
+        'nao-e-uuid',
+        '${MockSeed.joaoDeviceCode}0',
+        kc(99), // UUID que o servidor não conhece
+        MockSeed.joaoDeviceCode, // liberado
+      ]) {
+        await expectLater(
+          repo.listMyBookings(clientCode: code),
+          same401,
+          reason: code,
+        );
+        await expectLater(cancel(code, joaoNext), same401, reason: code);
+      }
+    });
+
+    test('agendar: ausente, fora do formato e liberado dão 401 antes de '
+        'qualquer outra regra (nunca 400, 404 ou 422)', () async {
+      await revokeJoao();
+      for (final code in ['', 'nao-e-uuid', MockSeed.joaoDeviceCode]) {
+        // Telefone inválido, barbearia que não existe e fora dos 14 dias:
+        // mesmo assim o que vem é o 401.
+        await expectLater(
+          repo.createClientBooking(
+            barbershopId: 'nao-existe',
+            idempotencyKey: nextKey(),
+            clientCode: code,
+            request: ClientBookingRequest(
+              serviceId: corte,
+              professionalId: caio,
+              startAt: sp('2026-10-30T10:15:00'),
+              client: const ClientInfo(name: 'J', phone: 'abc'),
+            ),
+          ),
+          same401,
+          reason: code,
+        );
+      }
+      expect(seed.codes, isEmpty);
+    });
+
+    test('código liberado repetindo uma Idempotency-Key já usada: 401, não o '
+        'resultado guardado', () async {
+      await book(
+        '2026-10-12T10:00:00',
+        code: MockSeed.joaoDeviceCode,
+        idem: 'antes-da-liberacao',
+      );
+      await revokeJoao();
+      await expectLater(
+        book(
+          '2026-10-12T10:00:00',
+          code: MockSeed.joaoDeviceCode,
+          idem: 'antes-da-liberacao',
+        ),
+        same401,
+      );
+    });
+
+    test('UUID novo (aparelho que ainda não agendou) pode agendar', () async {
+      final r = await book('2026-10-12T10:00:00', phone: '31998765432');
+      expect(seed.codes[k('31998765432')], r.client.id);
+    });
+  });
+
+  test('ordem dos erros: aparelho do João mandando o telefone do Rafael, que '
+      'está preso a outro aparelho, dá DEVICE_PHONE_MISMATCH (o código vem '
+      'antes do telefone)', () async {
+    final seed = MockSeed.build(clock.now());
+    repo = MockClienteRepository(clock: clock, initialState: seed);
+    // Rafael fica preso a outro aparelho.
+    await book('2026-10-12T10:00:00', phone: MockSeed.rafaelPhone, code: kc(3));
+    expect(seed.codes[kc(3)], MockSeed.rafaelId);
+    final before = seed.bookings.length;
+    await expectLater(
+      book(
+        '2026-10-13T10:00:00',
+        phone: '(21) 91234-5678',
+        code: MockSeed.joaoDeviceCode,
+      ),
+      throwsA(
+        isA<ApiProblem>()
+            .having((p) => p.code, 'code', ErrorCode.devicePhoneMismatch)
+            .having((p) => p.status, 'status', 409),
+      ),
+    );
+    expect(seed.bookings, hasLength(before));
+    expect(seed.codes[MockSeed.joaoDeviceCode], MockSeed.joaoId);
+    expect(seed.codes[kc(3)], MockSeed.rafaelId);
+  });
+
   group('telefone no formato +55', () {
     test('o cadastro guarda +55 + DDD + número, venha como vier', () async {
       await book('2026-10-12T10:00:00', phone: '(21) 91234-5678');
