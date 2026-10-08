@@ -41,7 +41,7 @@ void main() {
 
   testWidgets(
     'CT-00-46 modo mock: "Entrar como cliente novo" apaga o aparelho do João, '
-    'volta ao Início, e os telefones do Rafael e do João dão '
+    'mostra a introdução e o Início vazio, e os telefones do Rafael e do João dão '
     'PHONE_ON_OTHER_DEVICE',
     (tester) async {
       final clock = FixedClock(kNow);
@@ -63,16 +63,22 @@ void main() {
       expect(find.text('Entrar como cliente novo?'), findsOneWidget);
       await tapKey(tester, 'new-client-confirm');
 
-      // Volta ao Início (a introdução é da instalação e já foi vista), sem o
-      // João nem o horário dele.
-      expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
-      expect(find.byKey(const ValueKey('home-next-booking')), findsNothing);
-      expect(find.text('Você ainda não tem horários'), findsOneWidget);
-      expect(find.text('Pular'), findsNothing);
+      // O app volta a ser novo: primeiro a introdução (resposta 4 do PO)...
+      expect(find.text('Pular'), findsOneWidget);
+      expect(find.byKey(const ValueKey('intro-dot-0')), findsOneWidget);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(DeviceStore.kClientCode), isNull);
       expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
       expect(prefs.getString(DeviceStore.kClientName), isNull);
+      expect(prefs.getBool(DeviceStore.kIntroSeen), isNull);
+      // ...e a marca do seed fica: o João não volta.
+      expect(prefs.getBool(DeviceStore.kSeedSessionApplied), isTrue);
+
+      // ...depois o Início, sem o João nem o horário dele.
+      await skipIntro(tester);
+      expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
+      expect(find.byKey(const ValueKey('home-next-booking')), findsNothing);
+      expect(find.text('Você ainda não tem horários'), findsOneWidget);
       expect(prefs.getBool(DeviceStore.kIntroSeen), isTrue);
       // O "servidor" do mock não mudou: o João continua preso ao código dele.
       expect((await repo.state).codes[joaoCode], MockSeed.joaoId);

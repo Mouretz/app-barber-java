@@ -125,9 +125,11 @@ void main() {
     );
     await tapKey(tester, 'menu-new-client');
     await tapKey(tester, 'new-client-confirm');
+    await skipIntro(tester);
     expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
 
-    // Fecha e abre com o que ficou salvo no aparelho.
+    // Fecha e abre com o que ficou salvo no aparelho: intro já vista de novo,
+    // abre direto no Início, sem o João.
     final saved = await savedPrefs();
     expect(saved.containsKey(DeviceStore.kClientCode), isFalse);
     await tester.pumpWidget(const SizedBox());
@@ -138,6 +140,7 @@ void main() {
       deviceSeed: true,
       extraPrefs: saved,
     );
+    expect(find.text('Pular'), findsNothing);
     expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-next-booking')), findsNothing);
     final prefs = await SharedPreferences.getInstance();

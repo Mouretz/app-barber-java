@@ -40,14 +40,8 @@ class MenuScreen extends ConsumerWidget {
     if (ok != true) return;
     await ref.read(deviceStoreProvider.notifier).forgetClient();
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Pronto: agora este aparelho é de um cliente novo.'),
-        ),
-      );
-    context.go('/inicio');
+    // O app volta a ser novo: introdução e depois o Início vazio.
+    context.go('/intro');
   }
 
   @override

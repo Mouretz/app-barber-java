@@ -26,18 +26,33 @@ class _ClienteAppState extends ConsumerState<ClienteApp> {
   GoRouter? _router;
   final _messenger = GlobalKey<ScaffoldMessengerState>();
 
-  /// Aviso de aparelho desconectado pela barbearia (401 com o código salvo).
-  /// Sai uma vez só, venha de qual tela vier.
-  void _showDisconnected() {
-    _messenger.currentState
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          key: ValueKey('disconnected-notice'),
-          content: Text(kDisconnectedMessage),
-        ),
-      );
+  /// Aparelho desconectado pela barbearia (401 com o código salvo), venha de
+  /// qual tela vier. Ordem: aviso (uma vez só), introdução e Início de cliente
+  /// novo. É um diálogo, e não SnackBar, para o aviso ser lido antes da
+  /// introdução tomar a tela.
+  Future<void> _showDisconnected() async {
     ref.read(deviceStoreProvider.notifier).ackDisconnectedNotice();
+    final router = _router;
+    final ctx = router?.routerDelegate.navigatorKey.currentContext;
+    if (router == null || ctx == null) return;
+    await showDialog<void>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (dctx) => AlertDialog(
+        key: const ValueKey('disconnected-notice'),
+        backgroundColor: CortaTokens.of(dctx).surface,
+        content: const Text(kDisconnectedMessage),
+        actions: [
+          TextButton(
+            key: const ValueKey('disconnected-ok'),
+            onPressed: () => Navigator.pop(dctx),
+            child: const Text('Entendi'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    router.go('/intro');
   }
 
   @override

@@ -23,7 +23,9 @@ class DeviceState {
   /// Já leu o que estava salvo.
   final bool hydrated;
 
-  /// A introdução aparece só na primeira abertura (pergunta 4 da QA em aberto).
+  /// A introdução aparece na primeira abertura e de novo sempre que o app volta
+  /// a ser novo: "Entrar como cliente novo" (só mock) e aparelho desconectado
+  /// pela barbearia (401). Resposta 4 do PO no PR #7 da QA.
   final bool introSeen;
 
   /// Código do aparelho, preso a [boundPhone]. Nunca aparece na tela.
@@ -144,18 +146,24 @@ class DeviceStore extends Notifier<DeviceState> {
 
   /// Um pedido com o código salvo deu 401 (aparelho liberado pelo gerente na
   /// troca de celular): volta ao estado de cliente novo (sem código, telefone
-  /// e nome, campo de telefone livre). Com [notice], pede o aviso "Este
-  /// aparelho foi desconectado pela barbearia." uma vez só: vários 401 seguidos
-  /// (Início e Horários ao mesmo tempo) não repetem o aviso, porque depois do
-  /// primeiro já não há sessão.
+  /// e nome, campo de telefone livre, introdução por ver). Com [notice], pede o
+  /// aviso "Este aparelho foi desconectado pela barbearia." uma vez só: vários
+  /// 401 seguidos (Início e Horários ao mesmo tempo) não repetem o aviso,
+  /// porque depois do primeiro já não há sessão. Depois do aviso o `ClienteApp`
+  /// abre a introdução. Sem [notice] (código preso a outro telefone, só por
+  /// chamada direta) só solta o aparelho.
   Future<void> disconnectedByShop({bool notice = true}) async {
     if (state.clientCode == null && state.boundPhone == null) return;
     state = DeviceState(
       hydrated: state.hydrated,
-      introSeen: state.introSeen,
+      introSeen: notice ? false : state.introSeen,
       disconnectedNotice: notice,
     );
     await _removeClient();
+    if (notice) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(kIntroSeen);
+    }
   }
 
   /// O aviso de desconexão já foi mostrado.
@@ -178,13 +186,14 @@ class DeviceStore extends Notifier<DeviceState> {
   }
 
   /// "Entrar como cliente novo" (só no modo mock): esquece código, telefone e
-  /// nome, como um aparelho limpo. A introdução continua vista (ela é da
-  /// instalação, não do cliente), e a sessão do seed não volta na próxima
-  /// abertura. O código apagado continua preso ao João no "servidor" do mock,
+  /// nome e a introdução volta a aparecer, como num aparelho limpo. A sessão do
+  /// seed não volta na próxima abertura (a marca dela fica). O código apagado continua preso ao João no "servidor" do mock,
   /// como no servidor de verdade: só a liberação pelo gerente solta.
   Future<void> forgetClient() async {
-    state = DeviceState(hydrated: state.hydrated, introSeen: state.introSeen);
+    state = DeviceState(hydrated: state.hydrated);
     await _removeClient();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(kIntroSeen);
   }
 }
 

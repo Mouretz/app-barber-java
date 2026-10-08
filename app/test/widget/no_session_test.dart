@@ -68,8 +68,8 @@ void main() {
     expect(repo.listCalls, isEmpty);
   });
 
-  testWidgets('código liberado (401): limpa a sessão, para de chamar e mostra '
-      '"Você ainda não tem horários", sem tela de erro', (tester) async {
+  testWidgets('código liberado (401) em Horários: limpa a sessão, para de '
+      'chamar e não mostra tela de erro', (tester) async {
     final clock = FixedClock(kNow);
     final repo = SpyRepo(clock);
     await repo.releaseClientDevice(
@@ -84,7 +84,7 @@ void main() {
       location: '/horarios',
     );
 
-    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    expect(find.text(kDisconnectedText), findsOneWidget);
     expectNoError();
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNull);
@@ -92,19 +92,25 @@ void main() {
     final callsAfter401 = repo.listCalls.length;
     expect(callsAfter401, greaterThan(0));
 
-    // Sem sessão, trocar de aba e voltar ao Início não chama mais.
+    await ackDisconnected(tester);
+    await skipIntro(tester);
+
+    // Sem sessão, Início, Horários e histórico não chamam mais.
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    await tester.tap(find.text('Horários'));
+    await tester.pumpAndSettle();
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('scope-past')));
     await tester.pumpAndSettle();
     expect(find.text('Nada no histórico ainda'), findsOneWidget);
-    await tester.tap(find.text('Início'));
-    await tester.pumpAndSettle();
-    expect(find.text('Você ainda não tem horários'), findsOneWidget);
     expectNoError();
     expect(repo.listCalls, hasLength(callsAfter401));
   });
 
-  testWidgets('aparelho liberado pelo gerente: aviso uma vez só, campo de '
-      'telefone livre e "Você ainda não tem horários"', (tester) async {
+  testWidgets('aparelho liberado pelo gerente: aviso uma vez só, depois a '
+      'introdução, depois o Início de cliente novo com o telefone livre', (
+    tester,
+  ) async {
     final clock = FixedClock(kNow);
     final repo = SpyRepo(clock);
     await repo.releaseClientDevice(
@@ -112,28 +118,48 @@ void main() {
       clientId: MockSeed.joaoId,
     );
     // Abre no Início, que pede os próximos com o código salvo do João.
-    await pumpCliente(tester, repo: repo, clock: clock, clientCode: joaoCode);
+    await pumpCliente(
+      tester,
+      repo: repo,
+      clock: clock,
+      clientCode: joaoCode,
+      extraPrefs: {DeviceStore.kSeedSessionApplied: true},
+    );
 
-    final notice = find.text('Este aparelho foi desconectado pela barbearia.');
+    // 1) O aviso, antes de qualquer outra coisa.
+    final notice = find.text(kDisconnectedText);
     expect(notice, findsOneWidget);
     expect(find.byKey(const ValueKey('disconnected-notice')), findsOneWidget);
+    expect(find.text('Pular'), findsNothing);
     expect(
       clientMessageFor(const ApiProblem(ErrorCode.unauthorized, status: 401)),
-      'Este aparelho foi desconectado pela barbearia.',
+      kDisconnectedText,
     );
-    expect(find.text('Você ainda não tem horários'), findsOneWidget);
     expectNoError();
 
-    // Estado de cliente novo: nada salvo.
+    // Estado de cliente novo: nada salvo, intro por ver, marca do seed fica.
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNull);
     expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
     expect(prefs.getString(DeviceStore.kClientName), isNull);
+    expect(prefs.getBool(DeviceStore.kIntroSeen), isNull);
+    expect(prefs.getBool(DeviceStore.kSeedSessionApplied), isTrue);
 
-    // O aviso some e não volta em outra tela.
-    await tester.pump(const Duration(seconds: 6));
-    await tester.pumpAndSettle();
+    // 2) A introdução.
+    await ackDisconnected(tester);
     expect(notice, findsNothing);
+    expect(find.text('Pular'), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro-dot-0')), findsOneWidget);
+
+    // 3) O Início de cliente novo.
+    await skipIntro(tester);
+    expect(prefs.getBool(DeviceStore.kIntroSeen), isTrue);
+    expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    expect(notice, findsNothing);
+    expectNoError();
+
+    // O aviso não volta em outra tela.
     await tester.tap(find.text('Horários'));
     await tester.pumpAndSettle();
     expect(find.text('Você ainda não tem horários'), findsOneWidget);

@@ -161,6 +161,27 @@ void main() {
     expect(visibleSlots(tester), ['08:00', '08:30', '09:00']);
   });
 
+  testWidgets('resposta 1 do PO: o turno vai pelo início, Corte + Barba '
+      '11:30–12:30 fica na manhã', (tester) async {
+    final clock = FixedClock(kNow);
+    await pumpCliente(
+      tester,
+      repo: seededRepo(clock),
+      clock: clock,
+      location: agendar,
+    );
+    // Sexta 09/10, Caio livre das 08:00 às 19:00.
+    await choose(tester, service: MockSeed.comboId, day: '2026-10-09');
+    expect(visibleSlots(tester).last, '11:30');
+    expect(visibleSlots(tester), contains('11:30'));
+    await tapKey(tester, 'period-AFTERNOON');
+    expect(visibleSlots(tester).first, '12:00');
+    expect(visibleSlots(tester), isNot(contains('11:30')));
+    await tapKey(tester, 'period-EVENING');
+    // 18:00–19:00 ainda cabe e fica na noite.
+    expect(visibleSlots(tester), ['18:00']);
+  });
+
   testWidgets('CT-01-17 / CT-01-25 turno só filtra a lista do repositório', (
     tester,
   ) async {
@@ -453,20 +474,26 @@ void main() {
     await tapKey(tester, 'confirm-submit');
 
     expect(find.text('Horário marcado'), findsNothing);
-    // O aviso sai uma vez, na própria folha, e não por baixo dela.
-    expect(
-      find.text('Este aparelho foi desconectado pela barbearia.'),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('disconnected-notice')), findsNothing);
+    // A folha fecha e sai o aviso, uma vez só.
+    expect(find.byKey(const ValueKey('confirm-phone')), findsNothing);
+    expect(find.text(kDisconnectedText), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNull);
     expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
-    expect(phoneField(tester).readOnly, isFalse);
-    expect(phoneField(tester).controller!.text, isEmpty);
+
+    // Aviso, introdução e Início de cliente novo.
+    await ackDisconnected(tester);
+    expect(find.text(kDisconnectedText), findsNothing);
+    await skipIntro(tester);
+    expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
 
     // Agendando de novo neste aparelho com o telefone do João, ele fica preso
     // ao João outra vez, com um código novo.
+    await tester.tap(find.widgetWithText(FilledButton, 'Agendar'));
+    await tester.pumpAndSettle();
+    await openConfirm(tester);
+    expect(phoneField(tester).readOnly, isFalse);
+    expect(phoneField(tester).controller!.text, isEmpty);
     await fillAndSubmit(tester, name: 'João', phone: '(11) 98765-4321');
     expect(find.text('Horário marcado'), findsOneWidget);
     final code = prefs.getString(DeviceStore.kClientCode);

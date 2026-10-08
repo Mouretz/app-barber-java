@@ -11,7 +11,8 @@ import 'screens/my_bookings_screen.dart';
 
 /// Rotas do app Cliente.
 ///
-/// - `/intro`: introdução (história 14), só na primeira abertura.
+/// - `/intro`: introdução (história 14), na primeira abertura e sempre que o
+///   app volta a ser novo ("Entrar como cliente novo" e aparelho desconectado).
 /// - `/inicio` e `/inicio/barbearia/:id` (histórias 15 e 16).
 /// - `/agendar/:barbershopId?servico=&profissional=` em tela cheia (história 1).
 /// - `/horarios` (história 4) e `/menu`.

@@ -76,6 +76,20 @@ Future<void> pumpCliente(
   await tester.pumpAndSettle();
 }
 
+const kDisconnectedText = 'Este aparelho foi desconectado pela barbearia.';
+
+/// Fecha o aviso de aparelho desconectado (diálogo do `ClienteApp`).
+Future<void> ackDisconnected(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('disconnected-ok')));
+  await tester.pumpAndSettle();
+}
+
+/// Passa a introdução pelo "Pular".
+Future<void> skipIntro(WidgetTester tester) async {
+  await tester.tap(find.text('Pular'));
+  await tester.pumpAndSettle();
+}
+
 MockClienteRepository seededRepo(Clock clock) =>
     MockClienteRepository(clock: clock, initialState: seededState());
 
