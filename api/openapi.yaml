@@ -186,7 +186,9 @@ paths:
         - código preso a outro telefone: 409 `DEVICE_PHONE_MISMATCH` (o app trava o campo
           de telefone depois do 1º agendamento, então só chega aqui por chamada direta).
         O servidor confere o código antes do telefone: se as duas regras batem, vem
-        `DEVICE_PHONE_MISMATCH`.
+        `DEVICE_PHONE_MISMATCH`. Ordem: código ausente, fora do formato ou liberado dá 401;
+        código novo bem formado é aceito aqui (é assim que o aparelho se registra), e
+        "desconhecido" só dá 401 em Meus horários e no cancelar.
 
         Regras: no mínimo 30 minutos de antecedência (`TOO_SOON`), dentro do expediente
         (`OUTSIDE_WORKING_HOURS`), até hoje + 13 (`DATE_OUT_OF_RANGE`), sem conflito
@@ -902,7 +904,7 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: UUID gerado pelo app por ação (agendar, cancelar, mudar status). Repetir a chave devolve o mesmo resultado.
+      description: UUID gerado pelo app por ação (agendar, cancelar, mudar status). Repetir a chave devolve o mesmo resultado. Mesma chave com outro pedido dá 422 `IDEMPOTENCY_KEY_REUSED`.
       schema: { type: string, format: uuid }
     ClientCode:
       name: X-Client-Code
