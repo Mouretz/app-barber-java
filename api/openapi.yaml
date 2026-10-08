@@ -188,7 +188,8 @@ paths:
         O servidor confere o código antes do telefone: se as duas regras batem, vem
         `DEVICE_PHONE_MISMATCH`. Ordem: código ausente, fora do formato ou liberado dá 401;
         código novo bem formado é aceito aqui (é assim que o aparelho se registra), e
-        "desconhecido" só dá 401 em Meus horários e no cancelar.
+        código desconhecido dá o mesmo 401 em toda leitura e cancelamento do cliente
+        (nunca 200 com lista vazia).
 
         Regras: no mínimo 30 minutos de antecedência (`TOO_SOON`), dentro do expediente
         (`OUTSIDE_WORKING_HOURS`), até hoje + 13 (`DATE_OUT_OF_RANGE`), sem conflito

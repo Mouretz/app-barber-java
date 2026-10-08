@@ -35,6 +35,17 @@ class ClientDeviceIT extends DomainTest {
     }
 
     @Test
+    @DisplayName("Decisão do PO: GET /me/bookings com código bem formado que o servidor não conhece dá 401, nunca 200 vazio")
+    void unknownWellFormedCodeOnList() {
+        clientBook(w.shopA, w.corte, w.p1, "2026-10-08T10:00", T1, newCode()); // existe outro aparelho registrado
+        Res unknown = myBookings(newCode());
+        assertThat(unknown.status()).isEqualTo(401);
+        assertThat(unknown.code()).isEqualTo("UNAUTHORIZED");
+        assertThat(unknown.body()).isEqualTo(send(req(HttpMethod.GET, "/me/bookings")).body());
+        assertThat(send(req(HttpMethod.GET, "/me/bookings?scope=past").clientCode(newCode())).status()).isEqualTo(401);
+    }
+
+    @Test
     @DisplayName("Ausente, mal formado, desconhecido e liberado em Meus horários: o mesmo 401")
     void sameUnauthorizedOnReads() {
         String code = newCode();
