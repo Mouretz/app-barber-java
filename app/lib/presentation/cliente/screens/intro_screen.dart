@@ -151,7 +151,7 @@ class _IntroScreenState extends ConsumerState<IntroScreen> {
                             width: i == _page ? 22 : 6,
                             height: 6,
                             decoration: BoxDecoration(
-                              color: i == _page ? t.accent : t.navInactive,
+                              color: i == _page ? t.accent : t.textMuted,
                               borderRadius: BorderRadius.circular(3),
                             ),
                           ),
