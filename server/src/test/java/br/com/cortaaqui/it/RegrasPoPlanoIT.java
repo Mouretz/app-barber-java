@@ -470,4 +470,85 @@ class RegrasPoPlanoIT extends DomainTest {
         assertThat(get("/barbershops/" + w.shopA + "/professionals", w.tGP).status()).isEqualTo(200);
         assertThat(login("gp@a.test", World.PASSWORD).status()).isEqualTo(200);
     }
+
+    // ------------------------------------------------------------------ N3: gerente desativado como profissional
+
+    private static JsonNode membershipOf(JsonNode user, UUID shop) {
+        for (JsonNode m : user.get("memberships")) {
+            if (m.get("barbershopId").asText().equals(shop.toString())) {
+                return m;
+            }
+        }
+        throw new AssertionError("sem vínculo com " + shop + ": " + user);
+    }
+
+    private static List<String> roles(JsonNode membership) {
+        List<String> out = new ArrayList<>();
+        membership.get("roles").forEach(r -> out.add(r.asText()));
+        return out;
+    }
+
+    private List<String> publicProfessionals(UUID shop) {
+        Res page = send(req(HttpMethod.GET, "/barbershops/" + shop));
+        assertThat(page.status()).isEqualTo(200);
+        List<String> out = new ArrayList<>();
+        page.body().get("professionals").forEach(p -> out.add(p.get("id").asText()));
+        return out;
+    }
+
+    @Test
+    @DisplayName("N3 (PO 08/10): GP desativado como profissional some do app Cliente, não recebe agendamento (app e Casa), sai só MANAGER no /auth/me e continua gerente da A")
+    void n3ManagerDeactivatedAsProfessional() {
+        JsonNode before = membershipOf(get("/auth/me", w.tGP).body(), w.shopA);
+        assertThat(roles(before)).containsExactly("MANAGER", "PROFESSIONAL");
+        assertThat(before.get("professionalId").asText()).isEqualTo(w.gp.toString());
+        assertThat(publicProfessionals(w.shopA)).contains(w.gp.toString());
+
+        assertThat(setActive(w.tGA, w.shopA, w.gp, false).status()).isEqualTo(200);
+
+        // 1) /auth/me e login: continua gerente, mas não sai como PROFESSIONAL (nem com professionalId).
+        Res me = get("/auth/me", w.tGP);
+        assertThat(me.status()).isEqualTo(200);
+        JsonNode after = membershipOf(me.body(), w.shopA);
+        assertThat(roles(after)).containsExactly("MANAGER");
+        assertThat(after.get("professionalId") == null || after.get("professionalId").isNull()).as(after.toString()).isTrue();
+        Res session = login("gp@a.test", World.PASSWORD);
+        assertThat(session.status()).isEqualTo(200);
+        assertThat(roles(membershipOf(session.body().get("user"), w.shopA))).containsExactly("MANAGER");
+
+        // 2) App Cliente: não aparece na página da barbearia nem tem livres.
+        assertThat(publicProfessionals(w.shopA)).doesNotContain(w.gp.toString()).contains(w.p1.toString());
+        assertThat(availability(w.shopA, w.corte, w.gp, "2026-10-08").status()).isEqualTo(404);
+
+        // 3) Não recebe agendamento novo: nem pelo app, nem pela Casa (ele mesmo, G-A, balcão).
+        Res app = clientBook(w.shopA, w.corte, w.gp, "2026-10-08T10:00", T1, newCode());
+        assertThat(app.status()).as(app.toString()).isEqualTo(404);
+        assertThat(staffBook(w.tGP, w.shopA, w.corte, w.gp, "2026-10-08T10:00", "STAFF", "Cliente", "11912345678").status())
+                .isEqualTo(404);
+        assertThat(houseBook(w.corte, w.gp, "2026-10-08T10:00").status()).isEqualTo(404);
+        assertThat(staffBook(w.tGA, w.shopA, w.corte, w.gp, "2026-10-08T10:00", "COUNTER", "Balcão", null).status())
+                .isEqualTo(404);
+        assertThat(count("SELECT count(*) FROM bookings WHERE professional_id = '" + w.gp + "'")).isZero();
+        // Nem aparece na agenda da Casa (só os ativos).
+        JsonNode agenda = get("/barbershops/" + w.shopA + "/agenda?date=2026-10-08", w.tGP).body().get("professionals");
+        List<String> inAgenda = new ArrayList<>();
+        agenda.forEach(p -> inAgenda.add(p.get("professional").get("id").asText()));
+        assertThat(inAgenda).contains(w.p1.toString(), w.p2.toString()).doesNotContain(w.gp.toString());
+
+        // 4) Continua gerente da A: rotas só de gerente seguem 200/201.
+        assertManagerRoutesInA(w.tGP);
+        Res forP1 = staffBook(w.tGP, w.shopA, w.corte, w.p1, "2026-10-08T10:00", "STAFF", "Cliente", "11912345678");
+        assertThat(forP1.status()).as(forP1.toString()).isEqualTo(201);
+        assertThat(putHours(w.tGP, w.shopA, w.p1, "TUE", "08:00", "18:00").status()).isEqualTo(200);
+        assertThat(patchService(w.barba, 60).status()).isEqualTo(200);
+        assertThat(send(req(HttpMethod.PATCH, "/barbershops/" + w.shopA + "/services/" + w.corte).token(w.tGP)
+                .body(map("priceCents", 4500))).status()).isEqualTo(200);
+
+        // Reativado (por ele mesmo, que é gerente), volta a ser profissional.
+        assertThat(setActive(w.tGP, w.shopA, w.gp, true).status()).isEqualTo(200);
+        JsonNode back = membershipOf(get("/auth/me", w.tGP).body(), w.shopA);
+        assertThat(roles(back)).containsExactly("MANAGER", "PROFESSIONAL");
+        assertThat(back.get("professionalId").asText()).isEqualTo(w.gp.toString());
+        assertThat(publicProfessionals(w.shopA)).contains(w.gp.toString());
+    }
 }

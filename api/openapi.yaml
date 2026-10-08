@@ -56,6 +56,10 @@ info:
       barbearias dela) e não é revogado na desativação: a checagem é feita a cada pedido,
       e reativar devolve o acesso. Histórico e caixa continuam, e o gerente reativa pelo
       `PATCH` do profissional.
+    - Gerente desativado como profissional (regra do PO, 08/10): continua gerente naquela
+      barbearia, mas deixa de ser profissional. Não aparece no app Cliente, não recebe
+      agendamento novo (nem pelo app nem pela Casa) e no `/auth/me` o vínculo vem só com
+      `MANAGER` e `professionalId` nulo. Reativar devolve o papel `PROFESSIONAL`.
     - Clientes: um cadastro global por telefone e uma ficha por barbearia. A Casa só vê e
       busca as fichas da própria barbearia. Balcão sem telefone cria só a ficha.
     - Código do aparelho (`X-Client-Code`): o app gera o código (UUID v4) e guarda no
@@ -1115,7 +1119,9 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: Preenchido quando a pessoa também atende (papel PROFESSIONAL).
+          description: |
+            Preenchido quando a pessoa também atende (papel PROFESSIONAL). Nulo quando o
+            profissional dela está desativado nesta barbearia (aí `roles` é só `MANAGER`).
 
     BarbershopSummary:
       type: object
