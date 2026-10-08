@@ -2,6 +2,7 @@ package br.com.cortaaqui.agenda;
 
 import br.com.cortaaqui.auth.Access;
 import br.com.cortaaqui.auth.MembershipView;
+import br.com.cortaaqui.common.AgendaLock;
 import br.com.cortaaqui.common.ApiException;
 import br.com.cortaaqui.common.Checks;
 import br.com.cortaaqui.common.ErrorCode;
@@ -29,12 +30,14 @@ public class BlockService {
     private final Access access;
     private final Professionals professionals;
     private final Clock clock;
+    private final AgendaLock agendaLock;
 
-    public BlockService(JdbcClient db, Access access, Professionals professionals, Clock clock) {
+    public BlockService(JdbcClient db, Access access, Professionals professionals, Clock clock, AgendaLock agendaLock) {
         this.db = db;
         this.access = access;
         this.professionals = professionals;
         this.clock = clock;
+        this.agendaLock = agendaLock;
     }
 
     public record BlockRequest(UUID professionalId, OffsetDateTime startAt, OffsetDateTime endAt, String reason) {
@@ -67,12 +70,13 @@ public class BlockService {
             throw ApiException.unprocessable(ErrorCode.SLOT_IN_PAST, "Esse horário já terminou");
         }
         professionals.find(barbershopId, req.professionalId()).filter(p -> p.active()).orElseThrow(ApiException::notFound);
+        // Mesma fila da agenda dos agendamentos (AgendaLock): sem deadlock no EXCLUDE entre
+        // bloqueios sobrepostos, e bloqueio x agendamento novo vira "quem chegou antes vale".
+        agendaLock.lock(barbershopId, req.professionalId());
         // Bloquear nunca tira o que já está marcado (decisão do PO): o bloqueio entra mesmo em cima
         // de agendamento ativo, que fica e sai com overlapsBlock = true na agenda da Casa, para o
         // profissional resolver (atender ou cancelar). Bloqueio em cima de outro bloqueio do mesmo
-        // profissional: o EXCLUDE ex_bloqueio_sem_sobreposicao recusa (409 SLOT_TAKEN). Sem trava
-        // extra: numa corrida com um agendamento novo, o pior caso é "bloqueio em cima de
-        // agendamento", que é um estado permitido.
+        // profissional: o EXCLUDE ex_bloqueio_sem_sobreposicao recusa (409 SLOT_TAKEN).
         return db.sql("""
                         INSERT INTO blocks (barbershop_id, professional_id, start_at, end_at, reason, created_by_user_id)
                         VALUES (:b, :p, :s, :e, :r, :u)

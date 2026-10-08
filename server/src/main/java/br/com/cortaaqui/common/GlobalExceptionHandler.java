@@ -1,5 +1,7 @@
 package br.com.cortaaqui.common;
 
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -7,6 +9,7 @@ import java.sql.SQLException;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -84,10 +87,56 @@ public class GlobalExceptionHandler {
         return null;
     }
 
+    /**
+     * Corpo que não dá para ler: 422 VALIDATION_ERROR com {@code fields}, como os outros erros de
+     * validação. Tipo errado (texto onde vai número ou UUID, 60.5 em campo inteiro, etc.) aponta
+     * o campo pelo caminho do JSON ("client.phone", "items[0].price"). JSON quebrado ou corpo
+     * vazio, onde não tem campo para apontar, vem com field = "body".
+     */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Problem> unreadable(HttpMessageNotReadableException e) {
+        String field = "body";
+        String message;
+        Throwable cause = e.getCause();
+        if (cause instanceof JsonParseException) {
+            message = "JSON inválido";
+        } else if (cause instanceof JsonMappingException jm) {
+            String path = jsonPath(jm.getPath());
+            field = path.isEmpty() ? "body" : path;
+            message = "valor ou tipo inválido";
+        } else {
+            message = "corpo ausente ou inválido";
+        }
         return respond(new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR,
-                "Corpo inválido", "JSON inválido ou campo com tipo errado", null));
+                "Corpo inválido", "JSON inválido ou campo com tipo errado", List.of(new Problem.FieldMessage(field, message))));
+    }
+
+    /** Caminho do campo no JSON: client.phone, items[0].price. */
+    static String jsonPath(List<JsonMappingException.Reference> refs) {
+        StringBuilder sb = new StringBuilder();
+        for (JsonMappingException.Reference r : refs) {
+            if (r.getFieldName() != null) {
+                if (!sb.isEmpty()) {
+                    sb.append('.');
+                }
+                sb.append(r.getFieldName());
+            } else if (r.getIndex() >= 0) {
+                sb.append('[').append(r.getIndex()).append(']');
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Deadlock (40P01), falha de serialização (40001) ou espera de trava que sobrou depois das
+     * redes de segurança: 409, nunca 500. Criar agendamento e bloqueio já tratam antes
+     * (TransientDbRetry -> SLOT_TAKEN); isto cobre o resto.
+     */
+    @ExceptionHandler(ConcurrencyFailureException.class)
+    public ResponseEntity<Problem> concurrency(ConcurrencyFailureException e) {
+        log.warn("conflito de concorrência no banco", e);
+        return respond(ApiException.conflict(ErrorCode.VALIDATION_ERROR,
+                "Conflito com outra operação ao mesmo tempo; tente de novo"));
     }
 
     @ExceptionHandler(MissingRequestHeaderException.class)

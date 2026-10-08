@@ -1,5 +1,6 @@
 package br.com.cortaaqui.booking;
 
+import br.com.cortaaqui.common.TransientDbRetry;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -28,8 +29,9 @@ public class StaffBookingController {
     public ResponseEntity<BookingView> create(@PathVariable UUID barbershopId,
                                               @RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                               @RequestBody BookingService.StaffBookingRequest req) {
-        BookingService.Result r = ClientBookingController.Idempotent.retryOnSameKey(
-                () -> bookings.createByStaff(barbershopId, idempotencyKey, req));
+        BookingService.Result r = TransientDbRetry.once(
+                () -> ClientBookingController.Idempotent.retryOnSameKey(() -> bookings.createByStaff(barbershopId, idempotencyKey, req)),
+                ClientBookingController.Idempotent::slotTaken);
         return ResponseEntity.status(r.replay() ? HttpStatus.OK : HttpStatus.CREATED).body(r.booking());
     }
 
