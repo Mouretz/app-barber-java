@@ -3,7 +3,8 @@
 -- Barbearia Navalha, Caio (profissional e gerente), Helena (profissional), Corte 30/R$ 40,
 -- Barba 30/R$ 30, Corte + Barba 60/R$ 60, e os clientes João Almeida e Rafael Souza.
 --
--- Senha dos logins de dev: "navalha-dev-123" (só desenvolvimento; está aqui como hash BCrypt).
+-- Logins de dev: caio@navalha.dev e helena@navalha.dev. A senha fica só como hash BCrypt;
+-- não escreva a senha em texto neste arquivo.
 -- Nunca usar este seed em produção.
 
 INSERT INTO barbershops (id, name, neighborhood, city, address, phone, default_professional_percent)
