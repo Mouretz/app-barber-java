@@ -112,6 +112,17 @@ class DeviceStore extends Notifier<DeviceState> {
     await prefs.remove(kClientCode);
     await prefs.remove(kBoundPhone);
   }
+
+  /// "Entrar como cliente novo" (só no modo mock): esquece código, telefone e
+  /// nome, como um aparelho limpo. A introdução continua vista (ela é da
+  /// instalação, não do cliente).
+  Future<void> forgetClient() async {
+    state = DeviceState(hydrated: state.hydrated, introSeen: state.introSeen);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(kClientCode);
+    await prefs.remove(kBoundPhone);
+    await prefs.remove(kClientName);
+  }
 }
 
 final deviceStoreProvider = NotifierProvider<DeviceStore, DeviceState>(

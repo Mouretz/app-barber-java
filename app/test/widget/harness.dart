@@ -41,6 +41,7 @@ Future<void> pumpCliente(
   bool introSeen = true,
   String? clientCode,
   String? location,
+  AppConfig config = clienteConfig,
 }) async {
   // Aparelho preso: código e telefone salvos juntos. Hoje só o do João.
   SharedPreferences.setMockInitialValues({
@@ -57,11 +58,11 @@ Future<void> pumpCliente(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        appConfigProvider.overrideWithValue(clienteConfig),
+        appConfigProvider.overrideWithValue(config),
         clockProvider.overrideWithValue(clock),
         clienteRepositoryProvider.overrideWithValue(repo),
       ],
-      child: ClienteApp(config: clienteConfig, initialLocation: location),
+      child: ClienteApp(config: config, initialLocation: location),
     ),
   );
   await tester.pumpAndSettle();
