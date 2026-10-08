@@ -62,6 +62,8 @@ Respostas do PO Dev de 07/10/2026 (três rodadas, a regra do caixa por papel e a
   - Inválidos: menos de 10 dígitos nacionais, 12 ou 13 dígitos que não começam com 55, letras e país diferente de 55. (CT-17-12)
 - **Cliente único por telefone, com uma ficha por barbearia.** Cada barbearia só vê a própria ficha e os próprios agendamentos daquele cliente. (CT-17-08 a CT-17-10)
 - **Código do cliente:** o servidor **nunca** devolve o código. Ele nasce no aparelho (o app gera) e vai no primeiro agendamento, e o servidor prende esse código àquele telefone. Outro aparelho com o mesmo telefone é recusado com 409 `PHONE_ON_OTHER_DEVICE`, e o app mostra a mensagem exata **"Esse telefone já está em outro aparelho. Fale com a barbearia."** Só a Casa, logada, busca cliente por telefone; o cliente anônimo não busca. **Um telefone por aparelho:** depois do 1º agendamento o app trava o campo de telefone, e o servidor recusa o código com um telefone diferente com 409 `DEVICE_PHONE_MISMATCH`. **Troca de celular:** só o gerente libera, na ficha do cliente no app Casa, no botão "Liberar aparelho" (`POST …/clients/{clientId}/release-device`, rota só do gerente: 403 pro profissional que não é gerente e 404 pro gerente de outra barbearia, pela regra geral do contrato). O código antigo para de valer na hora. **Liberar em uma barbearia libera em todas**, porque o aparelho fica preso ao telefone, e não à barbearia; no MVP, o gerente da outra barbearia não é avisado. Os horários futuros continuam marcados (são do cliente, não do aparelho). O próximo aparelho que agendar com esse telefone fica preso a ele e passa a ver esses horários, de todas as barbearias, e o limite de 2 continua contando esses horários. **O aparelho só fica preso quando o agendamento entra:** se o 1º agendamento é recusado por qualquer motivo (limite de 2, menos de 30 min, fora dos 14 dias, horário ocupado), nada fica preso e o próximo aparelho ainda pode tentar. **Trava (aprovada pelo PO):** o gerente só libera um telefone que tenha pelo menos um agendamento feito pelo app na barbearia dele; senão, 409 `DEVICE_RELEASE_NOT_ALLOWED`. Vale também no mock. (CT-01-01, CT-04-08, CT-04-14 a CT-04-23, CT-17-19 a CT-17-28)
+- **"Entrar como cliente novo" (só no mock):** no modo mock, o menu do app Cliente tem o botão "Entrar como cliente novo". Ele apaga o código do aparelho, o app volta pro começo e o campo de telefone fica livre. O botão não pode existir no app ligado ao servidor (`DATA_SOURCE=api`). (CT-00-46 a CT-00-48)
+- **Ordem dos erros com aparelho e telefone presos a outros:** quando um aparelho preso a um telefone (ex.: o do João) manda um telefone preso a outro aparelho (ex.: o do Rafael), qual erro vem primeiro, `DEVICE_PHONE_MISMATCH` ou `PHONE_ON_OTHER_DEVICE`, **ainda depende do Back-end**. A QA propôs `DEVICE_PHONE_MISMATCH` primeiro. Até a decisão, nenhum caso cobra a ordem.
 - **Limite de 2 horários futuros:** vale só pro que é marcado pelo app e soma todas as barbearias. (CT-01-19 a CT-01-22, CT-01-27, CT-01-28, CT-00-42)
 - **Papel por barbearia:** a mesma pessoa pode ser gerente em uma e não ter acesso, ou ter outro papel, em outra. (CT-00-38 a CT-00-40)
 
@@ -537,6 +539,9 @@ Base dos casos CT-08-01 a CT-08-03: P1 com 60/40 e P2 com 70/30 (profissional/ca
 | CT-00-43 | Horário `agendado` e já no horário de início. | Mandar a mesma mudança de status (concluir) 2 vezes com a **mesma** `Idempotency-Key`. Repetir com 2 pedidos ao mesmo tempo. | 1 conclusão só. A 2ª resposta devolve o mesmo resultado (mesmo status, mesma % gravada), sem `STATUS_CHANGED`. O caixa conta 1 vez. | API + INT |
 | CT-00-44 | Horário já `concluido` (ou `cancelado`). | Com uma chave **nova**: pedir o mesmo status que já está, outro status final e o cancelamento pelo cliente. | Os 3 recusados com 409 `STATUS_CHANGED`. O banco não muda. (Pedir o mesmo status com chave nova não é "ignorado": só a mesma chave é.) | API |
 | CT-00-45 | Repositório fake que responde `STATUS_CHANGED`. | No app Cliente, cancelar. No app Casa, concluir, marcar falta e cancelar. | Nos dois apps, a tela mostra um aviso, recarrega o agendamento, mostra o status novo e tira as ações que não valem mais. Nada de tela de erro genérica. | FLU |
+| CT-00-46 | APK mock (`DATA_SOURCE=mock`), app Cliente com o João preso ao aparelho e o próximo horário dele no Início. | No menu, tocar em "Entrar como cliente novo". Conferir o armazenamento do aparelho, a tela, o Início e o campo de telefone. Depois agendar com o telefone do Rafael. | O código do aparelho é apagado. O app volta pro começo. O João não aparece mais no Início (nem o horário dele). O campo de telefone vem livre e vazio. O agendamento com o telefone do Rafael leva 409 `PHONE_ON_OTHER_DEVICE`, com a mensagem "Esse telefone já está em outro aparelho. Fale com a barbearia.", e nada é gravado. | FLU + MAN |
+| CT-00-47 | Widget test do app Cliente com `DATA_SOURCE=api` e com `DATA_SOURCE=mock`. | Abrir o menu nas 2 configurações e procurar "Entrar como cliente novo". | Com `api`: o botão não existe (nem o texto nem a ação). Com `mock`: o botão aparece. | FLU |
+| CT-00-48 | APK de release do app Cliente gerado com `--dart-define=DATA_SOURCE=api` (a CI hoje só gera o APK mock, então é preciso gerar esse). | Instalar, abrir e conferir o menu e as telas. | Não há o botão "Entrar como cliente novo" em lugar nenhum. | MAN |
 
 ---
 
@@ -560,11 +565,11 @@ Rodar antes de mandar o APK pro mouretz. Celular Android real, **modo avião lig
 - [ ] Tentar o 3º horário futuro com o mesmo telefone, escrito de outro jeito (ex.: com +55): recusa com mensagem clara.
 - [ ] Telefone com 9 dígitos ou com letras: recusa com mensagem clara.
 - [ ] Telefone com máscara (`(11) 98765-4321`) é aceito.
-- [ ] Agendar com o telefone do Rafael (preso a um aparelho fictício do seed): aparece "Esse telefone já está em outro aparelho. Fale com a barbearia." (409 `PHONE_ON_OTHER_DEVICE`; ver [pergunta 8](#perguntas-em-aberto)).
 - [ ] Depois do 1º agendamento, o campo de telefone fica travado.
 - [ ] Cancelar um horário com mais de 2h: some dos futuros e o horário volta a ficar livre.
 - [ ] Horário com menos de 2h: sem botão de cancelar.
 - [ ] Fechar à força e abrir: os dados continuam.
+- [ ] No menu, tocar em "Entrar como cliente novo" (só existe no mock): o app volta pro começo, o João some do Início e o campo de telefone fica livre. Agendar com o telefone do Rafael (preso a um aparelho fictício do seed): aparece "Esse telefone já está em outro aparelho. Fale com a barbearia." (409 `PHONE_ON_OTHER_DEVICE`). (CT-00-46)
 
 **App Casa como gerente**
 - [ ] Entrar com o gerente do seed.
@@ -624,7 +629,7 @@ Riscos conhecidos que a regra aprovada deixa de propósito. Não são perguntas;
 
 ## Perguntas em aberto
 
-Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10).
+Já respondidas e viradas regra (seção 2): turnos, grade de 30 min, duração dos serviços, janela de 14 dias, % por profissional e padrão 60/40, matriz de papéis, falta e balcão no caixa, visual (1ª rodada); cancelamento pela Casa, concluir e falta antes da hora, regras da marcação pela Casa e do balcão, profissional desativado, % inteira e arredondamento, data do caixa e o modelo de cliente e papel por barbearia (2ª rodada); arredondamento por agendamento, bloqueio, falta que libera o horário, slot em andamento e telefone normalizado (3ª rodada); caixa por papel (regra de 07/10); meia-noite do bloqueio, celular sem o 9, 55 com e sem `+`, telefone em outro aparelho e `shopCents` do profissional (decisões de 07/10); um telefone por aparelho e troca de celular com "Liberar aparelho" (decisões de 07/10); liberar em uma barbearia libera em todas, e o aparelho só fica preso quando o agendamento entra (decisões de 07/10); trava da liberação: o gerente só libera telefone com agendamento feito pelo app na barbearia dele, senão 409 `DEVICE_RELEASE_NOT_ALLOWED` (decisão de 07/10); botão "Entrar como cliente novo" só no mock, para testar o Rafael (decisão de 07/10).
 
 Estas continuam vagas demais para virar um teste com resultado esperado claro. Os casos que dependem delas estão marcados acima.
 
@@ -642,10 +647,6 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 5. **Profissional em Clientes (17):** o profissional que não é gerente pode buscar e cadastrar clientes? (CT-17-07)
 6. **Profissional desativado:** ele ainda entra no app Casa e vê o próprio histórico e ganho, ou perde o acesso? Dá para reativar? (CT-10-04)
 7. **Mesmo identificador de pedido com dados diferentes:** devolve o primeiro resultado ou dá erro? (CT-00-08)
-
-**APK mock**
-
-8. **Rafael no mesmo aparelho do João:** o aparelho que abre o app já fica preso ao João, que tem horário, então o campo de telefone vem travado e um aparelho tem um telefone só. Como o testador digita o telefone do Rafael? E, se der para chamar, qual erro vem primeiro: `PHONE_ON_OTHER_DEVICE` (o telefone do Rafael está em outro aparelho) ou `DEVICE_PHONE_MISMATCH` (o código está preso ao João)? A mensagem esperada no checklist é a do `PHONE_ON_OTHER_DEVICE`. (checklist da seção 8)
 
 ## 11. Resumo dos casos
 
@@ -666,5 +667,5 @@ Estas continuam vagas demais para virar um teste com resultado esperado claro. O
 | CT-20 | (20) Gerência | 10 |
 | CT-09 | (9) Visual | 11 |
 | CT-13 | (13) Nome CortaAqui | 3 |
-| CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 45 |
-| **Total** | | **244** |
+| CT-00 | Transversal (status, pedido repetido, login, papéis, multi-tenant, fuso, mock, papel por barbearia) | 48 |
+| **Total** | | **247** |
