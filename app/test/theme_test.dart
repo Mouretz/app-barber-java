@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cortaaqui/theme/theme.dart';
@@ -69,5 +70,16 @@ void main() {
     expect(t.inputPlaceholder, isNot(proibida));
     expect(t.navInactive, const Color(0xFF8E8E93));
     expect(t.inputPlaceholder, const Color(0xFF8E8E93));
+  });
+
+  test('#636366 não aparece em nenhum arquivo do app', () {
+    final achados = Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .where((f) => f.readAsStringSync().toUpperCase().contains('636366'))
+        .map((f) => f.path)
+        .toList();
+    expect(achados, isEmpty);
   });
 }

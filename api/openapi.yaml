@@ -185,6 +185,8 @@ paths:
           telefone já está em outro aparelho. Fale com a barbearia.");
         - código preso a outro telefone: 409 `DEVICE_PHONE_MISMATCH` (o app trava o campo
           de telefone depois do 1º agendamento, então só chega aqui por chamada direta).
+        O servidor confere o código antes do telefone: se as duas regras batem, vem
+        `DEVICE_PHONE_MISMATCH`.
 
         Regras: no mínimo 30 minutos de antecedência (`TOO_SOON`), dentro do expediente
         (`OUTSIDE_WORKING_HOURS`), até hoje + 13 (`DATE_OUT_OF_RANGE`), sem conflito
@@ -372,6 +374,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StatusChanged' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /barbershops/{barbershopId}/blocks:
     parameters:
