@@ -15,6 +15,7 @@ void main() {
       '(11) 3456-7890': '+551134567890',
       '551134567890': '+551134567890',
       '+55 (21) 91234-5678': '+5521912345678',
+      '+55 (11) 9 8765-4321': '+5511987654321', // 20 caracteres
     };
     iguais.forEach((entrada, esperado) {
       test('"$entrada" -> $esperado', () {
@@ -43,6 +44,7 @@ void main() {
       '', // vazio
       '+55 987654321', // 9 dígitos depois do 55
       '(01) 98765-4321', // DDD começando com 0
+      '+55 (11) 9 8765 - 4321', // 22 caracteres, contrato aceita até 20
     ];
     for (final entrada in invalidos) {
       test('"$entrada" é recusado', () {

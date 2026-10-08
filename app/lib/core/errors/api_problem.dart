@@ -16,6 +16,7 @@ enum ErrorCode {
   commissionSumInvalid('COMMISSION_SUM_INVALID'),
   dateOutOfRange('DATE_OUT_OF_RANGE'),
   tooEarly('TOO_EARLY'),
+  slotInPast('SLOT_IN_PAST'),
   professionalHasFutureBookings('PROFESSIONAL_HAS_FUTURE_BOOKINGS'),
   idempotencyKeyReused('IDEMPOTENCY_KEY_REUSED');
 
@@ -68,6 +69,8 @@ String clientMessageFor(ApiProblem p) {
       return 'Faltam menos de 2 horas. O cancelamento agora é só com a barbearia.';
     case ErrorCode.invalidStatusTransition:
       return 'Esse horário mudou de status. A lista foi atualizada.';
+    case ErrorCode.slotInPast:
+      return 'Esse horário já passou.';
     case ErrorCode.dateOutOfRange:
       return 'A agenda abre só para os próximos 14 dias.';
     case ErrorCode.outsideWorkingHours:

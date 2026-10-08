@@ -1,3 +1,7 @@
+/// Tamanho do texto digitado aceito pelo contrato (`ClientInfo.phone`).
+const kPhoneInputMin = 10;
+const kPhoneInputMax = 20;
+
 /// Normalização do telefone numa função só (plano da QA, seção 6, item 9).
 ///
 /// Formato guardado e devolvido pela API (decisão do PO): `+55` + DDD + número,
@@ -8,11 +12,13 @@
 /// - Sem `+`: 10 ou 11 dígitos são número nacional; 12 ou 13 dígitos começando
 ///   com 55 são DDI + número nacional. (Proposta da QA para a pergunta 6.)
 /// - Letras, DDI diferente de 55 e qualquer outro tamanho são recusados.
+/// - O texto digitado tem de 10 a 20 caracteres (`ClientInfo.phone` no
+///   contrato).
 ///
 /// Devolve `null` quando o número é inválido.
 String? normalizePhone(String raw) {
   final s = raw.trim();
-  if (s.isEmpty) return null;
+  if (s.length < kPhoneInputMin || s.length > kPhoneInputMax) return null;
   // Só dígitos, espaço, parênteses, hífen, ponto e um "+" no começo.
   if (!RegExp(r'^\+?[0-9\s().\-]+$').hasMatch(s)) return null;
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_problem.dart';
@@ -85,7 +86,7 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
         _error = null;
       });
       if (_nameError != null || _phoneError != null) return;
-      info = ClientInfo(name: name, phone: _phone.text);
+      info = ClientInfo(name: name, phone: _phone.text.trim());
     }
 
     setState(() {
@@ -184,6 +185,9 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
                 key: const ValueKey('confirm-phone'),
                 controller: _phone,
                 keyboardType: TextInputType.phone,
+                inputFormatters: [
+                  LengthLimitingTextInputFormatter(kPhoneInputMax),
+                ],
                 decoration: InputDecoration(
                   labelText: 'Celular com DDD',
                   hintText: '(11) 98765-4321',
@@ -193,8 +197,7 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Seu telefone identifica você na barbearia. Ele fica salvo '
-                'neste aparelho para os próximos agendamentos.',
+                'Seu telefone identifica você na barbearia.',
                 style: text.bodySmall,
               ),
             ] else
