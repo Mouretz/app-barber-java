@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/config/app_config.dart';
+import 'presentation/cliente/cliente_app.dart';
 import 'presentation/placeholder_home.dart';
 import 'theme/theme.dart';
 
@@ -10,10 +11,10 @@ final appConfigProvider = Provider<AppConfig>(
   (ref) => throw UnimplementedError('appConfigProvider sem override'),
 );
 
-/// Sobe um dos dois apps. Front-end troca o `home` pelo go_router de cada flavor.
 /// Ponto de partida dos dois apps. Lê a configuração do build e, se ela estiver
 /// errada (ex.: `DATA_SOURCE` desconhecido), mostra uma tela de erro em vez de
-/// abrir em branco ou cair no mock em silêncio.
+/// abrir em branco ou cair no mock em silêncio. O Cliente já tem as telas e o
+/// go_router dele; a Casa ainda usa a tela provisória.
 void bootCortaAqui(Flavor flavor) {
   runApp(rootFor(flavor, () => AppConfig.fromEnvironment(flavor)));
 }
@@ -102,6 +103,7 @@ class CortaAquiApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (config.flavor == Flavor.cliente) return ClienteApp(config: config);
     return MaterialApp(
       title: config.flavor.appName,
       debugShowCheckedModeBanner: false,
