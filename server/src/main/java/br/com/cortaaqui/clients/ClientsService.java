@@ -12,7 +12,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,17 +28,14 @@ public class ClientsService {
     private final ClientDirectory directory;
     private final ClientProfiles profiles;
     private final BookingQueries bookings;
-    private final boolean releaseRequiresAppBooking;
 
     public ClientsService(JdbcClient db, Access access, ClientDirectory directory, ClientProfiles profiles,
-                          BookingQueries bookings,
-                          @Value("${cortaaqui.release-device.require-app-booking:true}") boolean releaseRequiresAppBooking) {
+                          BookingQueries bookings) {
         this.db = db;
         this.access = access;
         this.directory = directory;
         this.profiles = profiles;
         this.bookings = bookings;
-        this.releaseRequiresAppBooking = releaseRequiresAppBooking;
     }
 
     public record ClientRequest(String name, String phone, String email) {
@@ -147,15 +143,12 @@ public class ClientsService {
     /**
      * Trava de segurança (regra do MVP aprovada pelo PO): o gerente só libera telefone que
      * tem pelo menos um agendamento feito pelo app nesta barbearia; senão 409
-     * DEVICE_RELEASE_NOT_ALLOWED. Fica num lugar só; a chave
-     * cortaaqui.release-device.require-app-booking existe só para o caso de o PO mudar a regra.
+     * DEVICE_RELEASE_NOT_ALLOWED. É regra de produto: não tem chave de configuração para
+     * desligar, em nenhum perfil. Mudar a regra é mudar este código, com PR e revisão.
      */
     private void guardReleaseAllowed(UUID barbershopId, UUID clientId) {
         if (clientId == null) {
             throw ApiException.conflict(ErrorCode.DEVICE_RELEASE_NOT_ALLOWED, "Ficha de balcão sem telefone não tem aparelho");
-        }
-        if (!releaseRequiresAppBooking) {
-            return;
         }
         Boolean hasAppBooking = db.sql("""
                         SELECT EXISTS (SELECT 1 FROM bookings
