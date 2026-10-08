@@ -1,0 +1,27 @@
+package br.com.cortaaqui.common;
+
+/** Códigos estáveis do contrato (api/openapi.yaml, ErrorCode). O app escolhe a mensagem por eles. */
+public enum ErrorCode {
+    UNAUTHORIZED,
+    FORBIDDEN,
+    NOT_FOUND,
+    VALIDATION_ERROR,
+    SLOT_TAKEN,
+    TOO_SOON,
+    OUTSIDE_WORKING_HOURS,
+    BOOKING_LIMIT_REACHED,
+    CANCEL_WINDOW_CLOSED,
+    STATUS_CHANGED,
+    PHONE_ON_OTHER_DEVICE,
+    DEVICE_PHONE_MISMATCH,
+    DEVICE_RELEASE_NOT_ALLOWED,
+    PHONE_IN_USE,
+    EMAIL_IN_USE,
+    TIME_OFF_HAS_BOOKINGS,
+    COMMISSION_SUM_INVALID,
+    DATE_OUT_OF_RANGE,
+    TOO_EARLY,
+    SLOT_IN_PAST,
+    PROFESSIONAL_HAS_FUTURE_BOOKINGS,
+    IDEMPOTENCY_KEY_REUSED
+}

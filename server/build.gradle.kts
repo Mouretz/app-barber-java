@@ -8,7 +8,7 @@ plugins {
 	id("io.spring.dependency-management") version "1.1.7"
 }
 
-group = "br.com.dio"
+group = "br.com.cortaaqui"
 version = "0.0.1-SNAPSHOT"
 
 java {
@@ -17,43 +17,39 @@ java {
 	}
 }
 
-configurations {
-	compileOnly {
-		extendsFrom(configurations.annotationProcessor.get())
-	}
-}
-
 repositories {
 	mavenCentral()
 }
 
-var mapStructVersion = "1.6.3"
-
 dependencies {
-	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
-	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-web")
+	implementation("org.springframework.boot:spring-boot-starter-validation")
+	implementation("org.springframework.boot:spring-boot-starter-jdbc")
+	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.flywaydb:flyway-core")
 	implementation("org.flywaydb:flyway-database-postgresql")
-	implementation("org.mapstruct:mapstruct:$mapStructVersion")
-
-	compileOnly("org.projectlombok:lombok")
 
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
 
 	runtimeOnly("org.postgresql:postgresql")
 
-	annotationProcessor("org.mapstruct:mapstruct-processor:$mapStructVersion")
-	annotationProcessor("org.projectlombok:lombok-mapstruct-binding:0.2.0")
-	annotationProcessor("org.projectlombok:lombok")
-
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
+	testImplementation("org.springframework.security:spring-security-test")
+	// Postgres de verdade nos testes: usa TEST_DB_URL se existir, senão sobe postgres:17 com Testcontainers.
+	testImplementation("org.testcontainers:postgresql")
+	testImplementation("org.testcontainers:junit-jupiter")
 
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+	// QA: a JVM dos testes roda em UTC; as regras de "dia" e "mês" usam America/Sao_Paulo explicitamente.
+	jvmArgs("-Duser.timezone=UTC")
+	testLogging {
+		events("failed")
+		exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+	}
 }
 
 tasks.named("build") {
