@@ -1,5 +1,8 @@
 package br.com.cortaaqui.booking;
 
+import br.com.cortaaqui.common.ApiException;
+import br.com.cortaaqui.common.ErrorCode;
+import br.com.cortaaqui.common.TransientDbRetry;
 import java.time.LocalDate;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -39,12 +42,19 @@ public class ClientBookingController {
                                               @RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                               @RequestHeader(value = "X-Client-Code", required = false) String clientCode,
                                               @RequestBody BookingService.ClientBookingRequest req) {
-        BookingService.Result r = Idempotent.retryOnSameKey(() -> bookings.createByClient(barbershopId, idempotencyKey, clientCode, req));
+        BookingService.Result r = TransientDbRetry.once(
+                () -> Idempotent.retryOnSameKey(() -> bookings.createByClient(barbershopId, idempotencyKey, clientCode, req)),
+                Idempotent::slotTaken);
         return ResponseEntity.status(r.replay() ? HttpStatus.OK : HttpStatus.CREATED).body(r.booking());
     }
 
     /** Dois pedidos com a mesma chave ao mesmo tempo: o segundo bate no índice único e repete como "mesma chave". */
     static final class Idempotent {
+        /** Deadlock/serialização que persistiu depois de repetir: para quem marca, o horário não deu. */
+        static ApiException slotTaken() {
+            return ApiException.conflict(ErrorCode.SLOT_TAKEN, "Horário ocupado");
+        }
+
         static BookingService.Result retryOnSameKey(Supplier<BookingService.Result> call) {
             try {
                 return call.get();
