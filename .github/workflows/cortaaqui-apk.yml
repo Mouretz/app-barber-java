@@ -79,6 +79,8 @@ jobs:
             Dois apps de teste em modo mock (sem servidor), para instalar direto no Android.
             - CortaAqui-cliente.apk: quem marca o horário
             - CortaAqui-casa.apk: gerente e profissional
+
+            O que mudou nesta geração: docs/versoes/CHANGELOG.md
           files: |
             dist/CortaAqui-cliente.apk
             dist/CortaAqui-casa.apk
