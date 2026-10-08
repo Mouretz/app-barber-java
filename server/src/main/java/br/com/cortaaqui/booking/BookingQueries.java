@@ -19,7 +19,11 @@ public class BookingQueries {
                    p.photo_url AS professional_photo_url, b.service_id, b.service_name, b.client_profile_id,
                    cp.name AS client_name, b.client_id, c.phone AS client_phone, b.source, b.status, b.start_at, b.end_at,
                    b.duration_minutes, b.price_cents, b.professional_percent, b.shop_percent, b.professional_cents,
-                   b.shop_cents, b.canceled_by, b.note, b.created_at, b.request_fingerprint, b.created_by_user_id
+                   b.shop_cents, b.canceled_by, b.note, b.created_at, b.request_fingerprint, b.created_by_user_id,
+                   (b.status IN ('SCHEDULED', 'COMPLETED') AND EXISTS (
+                        SELECT 1 FROM blocks k
+                         WHERE k.barbershop_id = b.barbershop_id AND k.professional_id = b.professional_id
+                           AND k.start_at < b.end_at AND k.end_at > b.start_at)) AS overlaps_block
               FROM bookings b
               JOIN barbershops s ON s.id = b.barbershop_id
               JOIN professionals p ON p.id = b.professional_id
@@ -53,7 +57,7 @@ public class BookingQueries {
                 intOrNull(rs, "professional_percent"), intOrNull(rs, "shop_percent"),
                 intOrNull(rs, "professional_cents"), intOrNull(rs, "shop_cents"),
                 rs.getString("canceled_by"), rs.getString("note"), ts(rs, "created_at"), rs.getString("request_fingerprint"),
-                rs.getObject("created_by_user_id", UUID.class));
+                rs.getObject("created_by_user_id", UUID.class), rs.getBoolean("overlaps_block"));
     }
 
     public Optional<BookingRow> find(UUID barbershopId, UUID id) {

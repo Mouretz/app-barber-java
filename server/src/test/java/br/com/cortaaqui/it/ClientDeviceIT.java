@@ -95,6 +95,7 @@ class ClientDeviceIT extends DomainTest {
         Res mine = myBookings(code);
         assertThat(mine.status()).isEqualTo(200);
         assertThat(mine.body()).hasSize(1);
+        assertThat(mine.body().get(0).has("overlapsBlock")).isFalse(); // campo só da Casa
     }
 
     @Test

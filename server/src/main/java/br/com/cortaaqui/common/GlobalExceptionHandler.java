@@ -32,7 +32,10 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * A trava do banco: violação do EXCLUDE (23P01) vira 409 SLOT_TAKEN, nunca 500.
+     * A trava do banco: violação de EXCLUDE (23P01: agendamento x agendamento ou bloqueio x
+     * bloqueio) vira 409 SLOT_TAKEN, nunca 500. Agendamento
+     * novo em cima de bloqueio (trigger ck_bookings_not_on_block) também vira 409 SLOT_TAKEN,
+     * que é o código do contrato para "horário bate com agendamento ou bloqueio".
      * Telefone repetido na mesma barbearia vira 409 PHONE_IN_USE.
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -53,6 +56,9 @@ public class GlobalExceptionHandler {
         String state = sql.getSQLState();
         String msg = String.valueOf(sql.getMessage());
         if ("23P01".equals(state)) {
+            return ApiException.conflict(ErrorCode.SLOT_TAKEN, "Horário ocupado");
+        }
+        if ("23514".equals(state) && msg.contains("ck_bookings_not_on_block")) {
             return ApiException.conflict(ErrorCode.SLOT_TAKEN, "Horário ocupado");
         }
         if ("23505".equals(state) && msg.contains("uk_client_profiles_client")) {
