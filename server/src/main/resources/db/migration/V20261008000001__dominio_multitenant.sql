@@ -251,9 +251,17 @@ CREATE TABLE booking_status_requests (
 );
 
 -- ------------------------------------------------------------------ A trava (sem encaixe duplo)
--- Agendamentos ativos (SCHEDULED e COMPLETED) e bloqueios ocupam a mesma tabela, com um
--- EXCLUDE por profissional. Falta e cancelado saem daqui e liberam o horário.
--- As linhas são mantidas por trigger, então até um INSERT direto no banco passa pela trava.
+-- Agendamentos ativos (SCHEDULED e COMPLETED) e bloqueios ficam na mesma tabela, mantida por
+-- trigger (até um INSERT direto no banco passa pela trava). Falta e cancelado saem daqui e
+-- liberam o horário. Duas travas por profissional:
+--   - agendamento x agendamento: EXCLUDE parcial nas linhas de agendamento;
+--   - bloqueio x bloqueio: EXCLUDE parcial nas linhas de bloqueio.
+-- Bloqueio x agendamento (decisão do PO): bloquear nunca tira o que já está marcado. O bloqueio
+-- entra mesmo em cima de agendamento ativo, que fica e aparece destacado na agenda da Casa
+-- (overlapsBlock, calculado na leitura). Agendamento NOVO em cima de bloqueio é recusado pelo
+-- trigger de bookings (ck_bookings_not_on_block -> 409 SLOT_TAKEN).
+-- Sem trava extra de propósito: numa corrida entre um bloqueio novo e um agendamento novo, o
+-- pior resultado é "bloqueio em cima de agendamento", que agora é um estado permitido.
 CREATE TABLE agenda_occupancy (
     id              bigserial PRIMARY KEY,
     barbershop_id   uuid      NOT NULL REFERENCES barbershops (id),
@@ -266,6 +274,9 @@ CREATE TABLE agenda_occupancy (
     CONSTRAINT fk_agenda_occupancy_professional FOREIGN KEY (barbershop_id, professional_id)
         REFERENCES professionals (barbershop_id, id),
     CONSTRAINT ex_agenda_sem_sobreposicao EXCLUDE USING gist (professional_id WITH =, period WITH &&)
+        WHERE (booking_id IS NOT NULL),
+    CONSTRAINT ex_bloqueio_sem_sobreposicao EXCLUDE USING gist (professional_id WITH =, period WITH &&)
+        WHERE (block_id IS NOT NULL)
 );
 
 CREATE FUNCTION bookings_occupancy() RETURNS trigger
@@ -274,6 +285,14 @@ $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         IF NEW.status IN ('SCHEDULED', 'COMPLETED') THEN
+            -- Agendamento novo não cai em bloqueio. O nome da regra vai no texto do erro porque o
+            -- driver não põe o CONSTRAINT do RAISE na mensagem.
+            IF EXISTS (SELECT 1 FROM agenda_occupancy o
+                        WHERE o.professional_id = NEW.professional_id AND o.block_id IS NOT NULL
+                          AND o.period && tstzrange(NEW.start_at, NEW.end_at, '[)')) THEN
+                RAISE EXCEPTION 'ck_bookings_not_on_block: horário bloqueado para esse profissional'
+                    USING ERRCODE = 'check_violation', CONSTRAINT = 'ck_bookings_not_on_block';
+            END IF;
             INSERT INTO agenda_occupancy (barbershop_id, professional_id, period, booking_id)
             VALUES (NEW.barbershop_id, NEW.professional_id, tstzrange(NEW.start_at, NEW.end_at, '[)'), NEW.id);
         END IF;
@@ -283,11 +302,11 @@ BEGIN
     -- UPDATE
     IF (NEW.barbershop_id, NEW.professional_id, NEW.start_at, NEW.end_at)
         IS DISTINCT FROM (OLD.barbershop_id, OLD.professional_id, OLD.start_at, OLD.end_at) THEN
-        RAISE EXCEPTION 'agendamento não muda de profissional nem de horário'
+        RAISE EXCEPTION 'ck_bookings_immutable_slot: agendamento não muda de profissional nem de horário'
             USING ERRCODE = 'check_violation', CONSTRAINT = 'ck_bookings_immutable_slot';
     END IF;
     IF OLD.status <> 'SCHEDULED' AND NEW.status IS DISTINCT FROM OLD.status THEN
-        RAISE EXCEPTION 'status final não muda (% -> %)', OLD.status, NEW.status
+        RAISE EXCEPTION 'ck_bookings_status_forward_only: status final não muda (% -> %)', OLD.status, NEW.status
             USING ERRCODE = 'check_violation', CONSTRAINT = 'ck_bookings_status_forward_only';
     END IF;
     IF NEW.status IN ('NO_SHOW', 'CANCELED') AND OLD.status NOT IN ('NO_SHOW', 'CANCELED') THEN
@@ -310,7 +329,7 @@ BEGIN
         VALUES (NEW.barbershop_id, NEW.professional_id, tstzrange(NEW.start_at, NEW.end_at, '[)'), NEW.id);
         RETURN NEW;
     END IF;
-    RAISE EXCEPTION 'bloqueio não é editado; desbloqueie e crie outro'
+    RAISE EXCEPTION 'ck_blocks_immutable: bloqueio não é editado; desbloqueie e crie outro'
         USING ERRCODE = 'check_violation', CONSTRAINT = 'ck_blocks_immutable';
 END;
 $$;

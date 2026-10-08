@@ -30,6 +30,7 @@ class ClientBookingIT extends DomainTest {
         assertThat(r.body().has("shopPercent")).isFalse();
         assertThat(r.body().has("professionalPercent")).isFalse();
         assertThat(r.body().has("note")).isFalse();
+        assertThat(r.body().has("overlapsBlock")).isFalse();
         assertThat(r.body().get("canCancel").asBoolean()).isFalse(); // faltam 1h
         assertThat(db.sql("SELECT barbershop_id FROM bookings WHERE id = :id").param("id", r.id()).query(UUID.class).single())
                 .isEqualTo(w.shopA);

@@ -13,7 +13,7 @@ public record BookingRow(UUID id, UUID barbershopId, String barbershopName, UUID
                          String clientName, UUID clientId, String clientPhone, String source, String status,
                          Instant startAt, Instant endAt, int durationMinutes, int priceCents, Integer professionalPercent,
                          Integer shopPercent, Integer professionalCents, Integer shopCents, String canceledBy, String note,
-                         Instant createdAt, String requestFingerprint, UUID createdByUserId) {
+                         Instant createdAt, String requestFingerprint, UUID createdByUserId, boolean overlapsBlock) {
 
     /** Cliente cancela com 2h ou mais de antecedência (exatamente 2h pode). */
     public static final Duration CLIENT_CANCEL_MIN_NOTICE = Duration.ofHours(2);
@@ -30,7 +30,7 @@ public record BookingRow(UUID id, UUID barbershopId, String barbershopName, UUID
         return new BookingView(id, barbershopId, barbershopName, status, source, SpTime.sp(startAt), SpTime.sp(endAt),
                 new BookingView.Ref(serviceId, serviceName), new ProfessionalPublic(professionalId, professionalName, professionalPhotoUrl),
                 new BookingView.ClientRef(clientProfileId, clientName, Phones.display(clientPhone)), priceCents,
-                m.manager() ? shopPercent : null, professionalPercent, null, canceledBy, note, SpTime.sp(createdAt));
+                m.manager() ? shopPercent : null, professionalPercent, null, canceledBy, note, SpTime.sp(createdAt), overlapsBlock);
     }
 
     /** Visão do app Cliente: sem telefone, sem % e sem nota interna da barbearia. */
@@ -38,6 +38,6 @@ public record BookingRow(UUID id, UUID barbershopId, String barbershopName, UUID
         return new BookingView(id, barbershopId, barbershopName, status, source, SpTime.sp(startAt), SpTime.sp(endAt),
                 new BookingView.Ref(serviceId, serviceName), new ProfessionalPublic(professionalId, professionalName, professionalPhotoUrl),
                 new BookingView.ClientRefPublic(clientProfileId, clientName), priceCents, null, null,
-                clientCanCancel(now), canceledBy, null, SpTime.sp(createdAt));
+                clientCanCancel(now), canceledBy, null, SpTime.sp(createdAt), null);
     }
 }

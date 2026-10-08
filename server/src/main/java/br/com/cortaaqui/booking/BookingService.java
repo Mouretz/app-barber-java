@@ -30,7 +30,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Agendamento: criação (app e Casa), cancelamento do cliente e mudança de status pela Casa.
  * <ul>
- *   <li>Encaixe duplo: barrado pela constraint EXCLUDE (vira 409 SLOT_TAKEN).</li>
+ *   <li>Encaixe duplo: barrado pela constraint EXCLUDE entre agendamentos ativos (vira 409 SLOT_TAKEN).</li>
+ *   <li>Em cima de bloqueio: o trigger ck_bookings_not_on_block recusa o INSERT (409 SLOT_TAKEN), no app e na
+ *       Casa. Sem trava extra: corrida com um bloqueio novo só pode terminar em "bloqueio em cima de
+ *       agendamento", que é permitido (aparece com overlapsBlock na agenda).</li>
  *   <li>Pedido repetido (mesma Idempotency-Key): devolve o resultado original, sem criar nem mudar nada.</li>
  *   <li>Status só anda pra frente, com UPDATE ... WHERE status = 'SCHEDULED'. Quem chega depois leva 409 STATUS_CHANGED.</li>
  *   <li>Limite de 2 futuros pelo app por cliente, somando barbearias, com a linha do cliente travada.</li>

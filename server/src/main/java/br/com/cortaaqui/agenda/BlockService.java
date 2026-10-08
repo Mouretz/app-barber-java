@@ -67,7 +67,12 @@ public class BlockService {
             throw ApiException.unprocessable(ErrorCode.SLOT_IN_PAST, "Esse horário já terminou");
         }
         professionals.find(barbershopId, req.professionalId()).filter(p -> p.active()).orElseThrow(ApiException::notFound);
-        // Conflito com agendamento ativo ou outro bloqueio: a constraint do banco recusa (409 SLOT_TAKEN).
+        // Bloquear nunca tira o que já está marcado (decisão do PO): o bloqueio entra mesmo em cima
+        // de agendamento ativo, que fica e sai com overlapsBlock = true na agenda da Casa, para o
+        // profissional resolver (atender ou cancelar). Bloqueio em cima de outro bloqueio do mesmo
+        // profissional: o EXCLUDE ex_bloqueio_sem_sobreposicao recusa (409 SLOT_TAKEN). Sem trava
+        // extra: numa corrida com um agendamento novo, o pior caso é "bloqueio em cima de
+        // agendamento", que é um estado permitido.
         return db.sql("""
                         INSERT INTO blocks (barbershop_id, professional_id, start_at, end_at, reason, created_by_user_id)
                         VALUES (:b, :p, :s, :e, :r, :u)
@@ -85,7 +90,7 @@ public class BlockService {
                 .param("b", barbershopId).param("id", blockId).query(UUID.class).optional()
                 .orElseThrow(ApiException::notFound);
         access.requireSelfOrManager(m, professionalId);
-        // Só o bloqueio sai (a ocupação vai junto por cascata). Nenhuma marcação é tocada.
+        // Só o bloqueio sai. Nenhuma marcação é tocada; overlapsBlock é recalculado na próxima leitura.
         db.sql("DELETE FROM blocks WHERE barbershop_id = :b AND id = :id").param("b", barbershopId).param("id", blockId).update();
     }
 

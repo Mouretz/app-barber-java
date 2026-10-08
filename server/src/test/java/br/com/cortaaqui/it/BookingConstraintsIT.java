@@ -52,37 +52,65 @@ class BookingConstraintsIT extends DomainTest {
                 .doesNotThrowAnyException();
     }
 
-    @ParameterizedTest(name = "existente {0}: ocupa = {1}")
-    @DisplayName("CT-03-06 / CT-03-10 / CT-03-11 SCHEDULED, COMPLETED e bloqueio ocupam; NO_SHOW e CANCELED não")
+    @ParameterizedTest(name = "existente {0}: agendamento novo por cima recusado = {1}")
+    @DisplayName("CT-03-06 / CT-03-10 / CT-03-11 SCHEDULED, COMPLETED e bloqueio barram agendamento novo; NO_SHOW e CANCELED não")
     @CsvSource({"SCHEDULED, true", "COMPLETED, true", "BLOCK, true", "NO_SHOW, false", "CANCELED, false"})
-    void whatOccupies(String existing, boolean occupies) {
+    void whatOccupies(String existing, boolean refused) {
         if ("BLOCK".equals(existing)) {
             insertBlockDirect(w.shopA, w.p1, "2026-10-08T10:00", "2026-10-08T10:30");
         } else {
             insertBookingDirect(w.shopA, w.p1, w.corte, "2026-10-08T10:00", 30, existing);
         }
         Runnable booking = () -> insertBookingDirect(w.shopA, w.p1, w.corte, "2026-10-08T10:15", 30, "SCHEDULED");
-        Runnable block = () -> insertBlockDirect(w.shopA, w.p1, "2026-10-08T10:00", "2026-10-08T11:00");
-        if (occupies) {
-            assertThatThrownBy(booking::run).isInstanceOf(DataIntegrityViolationException.class);
-            assertThatThrownBy(block::run).isInstanceOf(DataIntegrityViolationException.class);
+        if (refused) {
+            assertThatThrownBy(booking::run).isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("BLOCK".equals(existing) ? "ck_bookings_not_on_block" : "ex_agenda_sem_sobreposicao");
         } else {
             assertThatCode(booking::run).doesNotThrowAnyException();
-            db.sql("DELETE FROM bookings WHERE start_at = CAST(:s AS timestamptz)").param("s", sp("2026-10-08T10:15")).update();
+        }
+        // Bloqueio por cima: agendamento nunca impede (decisão do PO); outro bloqueio impede.
+        Runnable block = () -> insertBlockDirect(w.shopA, w.p1, "2026-10-08T10:00", "2026-10-08T11:00");
+        if ("BLOCK".equals(existing)) {
+            assertThatThrownBy(block::run).isInstanceOf(DataIntegrityViolationException.class)
+                    .hasMessageContaining("ex_bloqueio_sem_sobreposicao");
+        } else {
             assertThatCode(block::run).doesNotThrowAnyException();
         }
     }
 
     @Test
-    @DisplayName("Marcar falta ou cancelar tira a ocupação; desbloquear também")
+    @DisplayName("Bloqueio x bloqueio recusado (encostado pode); bloqueio em cima de agendamento é estado permitido no banco")
+    void blocksOverlapAndCoverBookings() {
+        UUID b = insertBookingDirect(w.shopA, w.p1, w.corte, "2026-10-08T10:00", 30, "SCHEDULED");
+        insertBlockDirect(w.shopA, w.p1, "2026-10-08T09:00", "2026-10-08T11:00");
+        assertThatThrownBy(() -> insertBlockDirect(w.shopA, w.p1, "2026-10-08T10:30", "2026-10-08T12:00"))
+                .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("ex_bloqueio_sem_sobreposicao");
+        assertThatCode(() -> insertBlockDirect(w.shopA, w.p1, "2026-10-08T11:00", "2026-10-08T12:00"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> insertBlockDirect(w.shopA, w.p2, "2026-10-08T09:00", "2026-10-08T11:00"))
+                .doesNotThrowAnyException();
+        assertThat(statusInDb(b)).isEqualTo("SCHEDULED");
+        // o agendamento debaixo do bloqueio ainda muda de status normalmente
+        db.sql("UPDATE bookings SET status = 'CANCELED', canceled_by = 'STAFF' WHERE id = :id").param("id", b).update();
+        assertThat(statusInDb(b)).isEqualTo("CANCELED");
+        // outro profissional não é afetado pelo bloqueio do P1
+        assertThatCode(() -> insertBookingDirect(w.shopA, w.gp, w.corte, "2026-10-08T10:00", 30, "SCHEDULED"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Marcar falta ou cancelar libera o horário para outro agendamento; desbloquear também")
     void statusChangeFreesOccupancy() {
         UUID b = insertBookingDirect(w.shopA, w.p1, w.corte, "2026-10-08T10:00", 30, "SCHEDULED");
         db.sql("UPDATE bookings SET status = 'NO_SHOW' WHERE id = :id").param("id", b).update();
-        assertThat(count("SELECT count(*) FROM agenda_occupancy")).isZero();
-        UUID block = insertBlockDirect(w.shopA, w.p1, "2026-10-08T10:00", "2026-10-08T11:00");
-        assertThat(count("SELECT count(*) FROM agenda_occupancy")).isEqualTo(1);
+        assertThatCode(() -> insertBookingDirect(w.shopA, w.p1, w.corte, "2026-10-08T10:00", 30, "SCHEDULED"))
+                .doesNotThrowAnyException();
+        UUID block = insertBlockDirect(w.shopA, w.p1, "2026-10-08T11:00", "2026-10-08T12:00");
+        assertThatThrownBy(() -> insertBookingDirect(w.shopA, w.p1, w.corte, "2026-10-08T11:00", 30, "SCHEDULED"))
+                .isInstanceOf(DataIntegrityViolationException.class);
         db.sql("DELETE FROM blocks WHERE id = :id").param("id", block).update();
-        assertThat(count("SELECT count(*) FROM agenda_occupancy")).isZero();
+        assertThatCode(() -> insertBookingDirect(w.shopA, w.p1, w.corte, "2026-10-08T11:00", 30, "SCHEDULED"))
+                .doesNotThrowAnyException();
     }
 
     @ParameterizedTest(name = "{0} -> qualquer outro é recusado no banco")
@@ -168,8 +196,10 @@ class BookingConstraintsIT extends DomainTest {
     void uniqueConstraints() {
         List<String> names = db.sql("SELECT conname FROM pg_constraint WHERE contype = 'u'").query(String.class).list();
         assertThat(names).contains("uk_clients_phone", "uk_client_profiles_client", "uk_memberships_user");
-        assertThat(count("SELECT count(*) FROM pg_constraint WHERE conname = 'ex_agenda_sem_sobreposicao' AND contype = 'x'"))
-                .isEqualTo(1);
+        assertThat(count("""
+                SELECT count(*) FROM pg_constraint
+                 WHERE conname IN ('ex_agenda_sem_sobreposicao', 'ex_bloqueio_sem_sobreposicao') AND contype = 'x'
+                """)).isEqualTo(2);
     }
 
     @Test
