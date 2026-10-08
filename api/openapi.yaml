@@ -231,6 +231,12 @@ paths:
       tags: [Cliente]
       operationId: listMyBookings
       summary: Meus horários (história 4) e próximo horário do Início (história 15)
+      description: |
+        Código que o servidor não conhece (aparelho que ainda não agendou) ou que o gerente
+        liberou dá 401, como qualquer código inválido. Por isso o app não chama esta rota
+        antes do primeiro agendamento dar certo: mostra "Você ainda não tem horários"
+        sozinho. Se receber 401 depois de já ter agendado, o app mostra "Este aparelho foi
+        desconectado pela barbearia.", apaga o código e volta ao estado de cliente novo.
       security: [{ clientCode: [] }]
       parameters:
         - name: scope
