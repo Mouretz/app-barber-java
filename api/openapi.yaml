@@ -24,8 +24,14 @@ info:
       resposta da primeira vez, sem criar outro agendamento.
     - Status do agendamento só anda pra frente: `SCHEDULED` vira `COMPLETED`, `NO_SHOW`
       ou `CANCELED`, e daí não volta.
-    - Sem encaixe duplo por profissional: garantido por constraint no banco. Conflito
-      devolve 409 `SLOT_TAKEN`.
+    - Sem encaixe duplo por profissional: garantido por constraint no banco. Ocupam o
+      horário só marcações `SCHEDULED` ou `COMPLETED` e os bloqueios; falta e cancelamento
+      liberam. Conflito devolve 409 `SLOT_TAKEN`.
+    - Grade de 30 em 30 minutos: início de marcação e início/fim de bloqueio caem em
+      :00 ou :30, senão 422 `VALIDATION_ERROR`.
+    - Telefone: o servidor aceita qualquer jeito de escrever, guarda e devolve só dígitos
+      no formato `+55` + DDD + número (10 ou 11 dígitos depois do 55). Jeitos diferentes
+      que dão o mesmo número são o mesmo cliente.
     - O preço e a duração do serviço ficam gravados no agendamento na criação. A divisão
       casa/profissional fica gravada quando o agendamento é concluído.
     - Papéis: o gerente faz tudo na barbearia. O profissional que não é gerente vê e mexe
@@ -51,7 +57,7 @@ tags:
   - name: Serviços
     description: App Casa. Serviços e preços.
   - name: Gerência
-    description: App Casa, só gerente. Divisão casa/profissional e caixa do mês.
+    description: App Casa. `/commission` é só do gerente. `/cash` e `/cash/professionals/{professionalId}` também respondem ao profissional, só com a linha dele (403 se pedir a de outro).
 
 security: []
 
@@ -276,8 +282,9 @@ paths:
         `clientId` para cliente já cadastrado, ou `newClient` para cadastrar na hora.
         `source = COUNTER` é o atendimento de balcão. Na marcação pela Casa (STAFF ou
         COUNTER) vale o limite de 14 dias (`DATE_OUT_OF_RANGE`), mas não valem os 30 min de
-        antecedência nem o limite de 2 horários do cliente: dá para marcar o horário que
-        está começando agora, se estiver livre.
+        antecedência nem o limite de 2 horários do cliente: dá para marcar o horário de
+        30 min que está em andamento agora, se estiver livre. Horário que já terminou
+        devolve 422 `SLOT_IN_PAST`.
         Profissional só marca na própria agenda; gerente marca em qualquer uma.
       security: [{ staffToken: [] }]
       parameters:
@@ -341,7 +348,10 @@ paths:
     post:
       tags: [Agenda]
       operationId: createBlock
-      summary: Bloquear um horário livre (história 2)
+      summary: Bloquear um intervalo livre (história 2)
+      description: |
+        Intervalo dentro de um mesmo dia, com início e fim na grade de 30 min (30 min é o
+        menor). Profissional só bloqueia a própria agenda; gerente, qualquer uma.
       security: [{ staffToken: [] }]
       requestBody:
         required: true
@@ -369,6 +379,9 @@ paths:
       tags: [Agenda]
       operationId: deleteBlock
       summary: Desbloquear
+      description: |
+        Profissional desbloqueia só os bloqueios da própria agenda; gerente, qualquer um.
+        Não mexe em nenhuma marcação.
       security: [{ staffToken: [] }]
       responses:
         '204': { description: Removido }
@@ -903,6 +916,7 @@ components:
         - COMMISSION_SUM_INVALID
         - DATE_OUT_OF_RANGE
         - TOO_EARLY
+        - SLOT_IN_PAST
         - PROFESSIONAL_HAS_FUTURE_BOOKINGS
         - IDEMPOTENCY_KEY_REUSED
 
@@ -1122,7 +1136,7 @@ components:
           properties:
             id: { type: string, format: uuid }
             name: { type: string }
-            phone: { type: string, description: Só aparece para a casa. }
+            phone: { type: string, pattern: '^\+55\d{10,11}$', description: Só aparece para a casa. }
         priceCents: { type: integer, minimum: 0, description: Gravado na criação. }
         shopPercent: { type: integer, minimum: 0, maximum: 100, nullable: true, description: Gravado ao concluir; só a casa vê. }
         professionalPercent: { type: integer, minimum: 0, maximum: 100, nullable: true, description: Gravado ao concluir; só a casa vê. }
@@ -1137,9 +1151,10 @@ components:
         name: { type: string, minLength: 2, maxLength: 80 }
         phone:
           type: string
-          description: Só dígitos com DDD, sem +55.
-          pattern: '^\d{10,11}$'
-          example: '11987654321'
+          description: Qualquer formato que o usuário digitar; o servidor normaliza para +55 + DDD + número. Inválido dá 422.
+          minLength: 10
+          maxLength: 20
+          example: '(11) 98765-4321'
         email: { type: string, format: email, maxLength: 120 }
     ClientBookingRequest:
       type: object
@@ -1227,7 +1242,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        phone: { type: string }
+        phone: { type: string, pattern: '^\+55\d{10,11}$', example: '+5511987654321' }
         email: { type: string, format: email, nullable: true }
         createdAt: { type: string, format: date-time }
     ClientDetail:
@@ -1247,7 +1262,7 @@ components:
       minProperties: 1
       properties:
         name: { type: string, minLength: 2, maxLength: 80 }
-        phone: { type: string, pattern: '^\d{10,11}$' }
+        phone: { type: string, minLength: 10, maxLength: 20, description: Normalizado como em ClientInfo. }
         email: { type: string, format: email, maxLength: 120, nullable: true }
 
     CommissionSplit:

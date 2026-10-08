@@ -34,12 +34,12 @@ android {
         create("cliente") {
             dimension = "app"
             applicationId = "br.com.cortaaqui.cliente"
-            resValue("string", "app_name", "CortaAqui")
+            manifestPlaceholders["appName"] = "CortaAqui"
         }
         create("casa") {
             dimension = "app"
             applicationId = "br.com.cortaaqui.casa"
-            resValue("string", "app_name", "CortaAqui Casa")
+            manifestPlaceholders["appName"] = "CortaAqui Casa"
         }
     }
 
