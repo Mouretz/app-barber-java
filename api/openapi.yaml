@@ -26,7 +26,11 @@ info:
       ou `CANCELED`, e daí não volta.
     - Sem encaixe duplo por profissional: garantido por constraint no banco. Ocupam o
       horário só marcações `SCHEDULED` ou `COMPLETED` e os bloqueios; falta e cancelamento
-      liberam. Conflito devolve 409 `SLOT_TAKEN`.
+      liberam. Marcação nova em cima de marcação ou de bloqueio devolve 409 `SLOT_TAKEN`,
+      e bloqueio em cima de outro bloqueio também.
+    - Bloquear nunca tira o que já está marcado: o bloqueio entra mesmo em cima de uma
+      marcação ativa, que continua e vem com `overlapsBlock: true` na Casa para o
+      profissional resolver (atender ou cancelar).
     - Grade de 30 em 30 minutos: início de marcação e início/fim de bloqueio caem em
       :00 ou :30, senão 422 `VALIDATION_ERROR`.
     - Telefone: o servidor aceita qualquer jeito de escrever, guarda e devolve só dígitos
@@ -186,7 +190,10 @@ paths:
         - código preso a outro telefone: 409 `DEVICE_PHONE_MISMATCH` (o app trava o campo
           de telefone depois do 1º agendamento, então só chega aqui por chamada direta).
         O servidor confere o código antes do telefone: se as duas regras batem, vem
-        `DEVICE_PHONE_MISMATCH`.
+        `DEVICE_PHONE_MISMATCH`. Ordem: código ausente, fora do formato ou liberado dá 401;
+        código novo bem formado é aceito aqui (é assim que o aparelho se registra), e
+        código desconhecido dá o mesmo 401 em toda leitura e cancelamento do cliente
+        (nunca 200 com lista vazia).
 
         Regras: no mínimo 30 minutos de antecedência (`TOO_SOON`), dentro do expediente
         (`OUTSIDE_WORKING_HOURS`), até hoje + 13 (`DATE_OUT_OF_RANGE`), sem conflito
@@ -388,11 +395,14 @@ paths:
     post:
       tags: [Agenda]
       operationId: createBlock
-      summary: Bloquear um intervalo livre (história 2)
+      summary: Bloquear um intervalo (história 2)
       description: |
         Intervalo dentro de um mesmo dia, com início e fim na grade de 30 min (30 min é o
         menor). `endAt` às 00:00 do dia seguinte conta como fim do mesmo dia; passar disso
         dá 422. Profissional só bloqueia a própria agenda; gerente, qualquer uma.
+        Bloquear em cima de marcação ativa é permitido e não mexe nela: a marcação fica e
+        passa a vir com `overlapsBlock: true` na agenda. O único conflito é com outro
+        bloqueio do mesmo profissional (409 `SLOT_TAKEN`); encostado pode.
       security: [{ staffToken: [] }]
       requestBody:
         required: true
@@ -407,7 +417,11 @@ paths:
               schema: { $ref: '#/components/schemas/Block' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: '`SLOT_TAKEN`: bate com outro bloqueio do mesmo profissional (marcação não conta)'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /barbershops/{barbershopId}/blocks/{blockId}:
     parameters:
@@ -422,7 +436,8 @@ paths:
       summary: Desbloquear
       description: |
         Profissional desbloqueia só os bloqueios da própria agenda; gerente, qualquer um.
-        Não mexe em nenhuma marcação.
+        Não mexe em nenhuma marcação; a que estava debaixo volta a `overlapsBlock: false`
+        se não bater com outro bloqueio.
       security: [{ staffToken: [] }]
       responses:
         '204': { description: Removido }
@@ -908,7 +923,7 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: UUID gerado pelo app por ação (agendar, cancelar, mudar status). Repetir a chave devolve o mesmo resultado.
+      description: UUID gerado pelo app por ação (agendar, cancelar, mudar status). Repetir a chave devolve o mesmo resultado. Mesma chave com outro pedido dá 422 `IDEMPOTENCY_KEY_REUSED`.
       schema: { type: string, format: uuid }
     ClientCode:
       name: X-Client-Code
@@ -1226,6 +1241,13 @@ components:
         canceledBy: { type: string, enum: [CLIENT, STAFF], nullable: true }
         note: { type: string, maxLength: 200, nullable: true }
         createdAt: { type: string, format: date-time }
+        overlapsBlock:
+          type: boolean
+          description: |
+            Só na Casa (agenda, balcão, mudança de status, ficha do cliente); o app Cliente não
+            recebe. true quando a marcação está ativa (`SCHEDULED` ou `COMPLETED`) e bate com
+            algum bloqueio do mesmo profissional; a agenda destaca para o profissional resolver.
+            Calculado na leitura.
     ClientInfo:
       type: object
       required: [name, phone]

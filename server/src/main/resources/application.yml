@@ -1,10 +1,27 @@
 spring:
   application:
-    name: barber-shop-api
+    name: cortaaqui-server
   datasource:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
-  jpa:
-    hibernate:
-      ddl-auto: validate
+  flyway:
+    locations: classpath:db/migration
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      # % e preço são inteiros: 60.5 ou "60" são recusados (422), nunca arredondados em silêncio.
+      accept-float-as-int: false
+      adjust-dates-to-context-time-zone: false
+      fail-on-unknown-properties: false
+    mapper:
+      allow-coercion-of-scalars: false
+  mvc:
+    problemdetails:
+      enabled: false
+
+cortaaqui:
+  # Validade do token da Casa.
+  session-ttl: P7D
