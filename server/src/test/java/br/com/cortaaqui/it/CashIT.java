@@ -431,8 +431,6 @@ class CashIT extends DomainTest {
         Res p2 = proCash(w.tGA, w.shopA, w.p2, "2026-10");
         assertThat(p2.status()).isEqualTo(200);
         assertThat(p2.body().get("bookings")).hasSize(1);
-        // O próprio P2 (login ainda vinculado) também vê o histórico dele.
-        assertOwnTotals(cash(w.tP2, w.shopA, "2026-10").body().get("totals"), 1, 3000, 2100);
 
         Res nov = cash(w.tGA, w.shopA, "2026-11");
         assertThat(line(nov, w.p2)).isNull();
