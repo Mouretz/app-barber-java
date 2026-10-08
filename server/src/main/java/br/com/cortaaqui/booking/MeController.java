@@ -2,6 +2,7 @@ package br.com.cortaaqui.booking;
 
 import br.com.cortaaqui.clients.ClientDirectory;
 import br.com.cortaaqui.common.Checks;
+import br.com.cortaaqui.common.TransientDbRetry;
 import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
@@ -45,6 +46,7 @@ public class MeController {
     public BookingView cancel(@RequestHeader(value = "X-Client-Code", required = false) String clientCode,
                               @PathVariable UUID bookingId,
                               @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
-        return bookings.cancelByClient(clientCode, bookingId, idempotencyKey).booking();
+        // Repete uma vez em deadlock/serialização (a chave de status é desfeita junto); depois, 409 CONCURRENT_UPDATE.
+        return TransientDbRetry.once(() -> bookings.cancelByClient(clientCode, bookingId, idempotencyKey)).booking();
     }
 }

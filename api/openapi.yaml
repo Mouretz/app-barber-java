@@ -66,6 +66,14 @@ info:
     - Pedido repetido: cancelar, mudar status e agendar levam `Idempotency-Key`. Mesma
       chave devolve o mesmo resultado. Chave nova num agendamento que já saiu de
       `SCHEDULED` dá 409 `STATUS_CHANGED`, e a tela recarrega.
+    - Operação ao mesmo tempo: quando o banco não consegue concluir por causa de outra
+      operação ao mesmo tempo (deadlock, falha de serialização ou espera de trava), o
+      servidor repete uma vez sozinho. Se falhar de novo, devolve 409 `CONCURRENT_UPDATE`
+      e nada fica gravado (nem a `Idempotency-Key`). Vale para agendar (app e Casa),
+      bloquear, mudar status e cancelar, e para qualquer outra escrita que caia nisso. O app
+      mostra "Não deu pra concluir agora. Tente de novo.", fica na mesma tela e mantém o que
+      a pessoa escolheu; pode repetir com a mesma `Idempotency-Key`. Não é conflito de
+      horário: "Horário ocupado" só aparece com `SLOT_TAKEN`.
 servers:
   - url: http://localhost:8080/api/v1
     description: Local (docker compose)
@@ -238,7 +246,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: '`SLOT_TAKEN`, `PHONE_ON_OTHER_DEVICE` ou `DEVICE_PHONE_MISMATCH`'
+          description: '`SLOT_TAKEN`, `PHONE_ON_OTHER_DEVICE`, `DEVICE_PHONE_MISMATCH` ou `CONCURRENT_UPDATE` (operação ao mesmo tempo; tentar de novo)'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -435,7 +443,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409':
-          description: '`SLOT_TAKEN`: bate com outro bloqueio do mesmo profissional (marcação não conta)'
+          description: '`SLOT_TAKEN`: bate com outro bloqueio do mesmo profissional (marcação não conta). `CONCURRENT_UPDATE`: operação ao mesmo tempo; tentar de novo'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1005,12 +1013,12 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: '`SLOT_TAKEN`: o horário bate com agendamento ou bloqueio do mesmo profissional'
+      description: '`SLOT_TAKEN`: o horário bate com agendamento ou bloqueio do mesmo profissional. `CONCURRENT_UPDATE`: outra operação ao mesmo tempo travou esta no banco, nada foi gravado; tentar de novo'
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     StatusChanged:
-      description: '`STATUS_CHANGED`: o agendamento já saiu de `SCHEDULED` por outro pedido'
+      description: '`STATUS_CHANGED`: o agendamento já saiu de `SCHEDULED` por outro pedido. `CONCURRENT_UPDATE`: outra operação ao mesmo tempo travou esta no banco, nada foi gravado; tentar de novo'
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -1063,6 +1071,7 @@ components:
         - SLOT_IN_PAST
         - PROFESSIONAL_HAS_FUTURE_BOOKINGS
         - IDEMPOTENCY_KEY_REUSED
+        - CONCURRENT_UPDATE
 
     Role:
       type: string

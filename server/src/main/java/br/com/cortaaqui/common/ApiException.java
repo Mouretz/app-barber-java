@@ -47,6 +47,16 @@ public class ApiException extends RuntimeException {
         return new ApiException(HttpStatus.CONFLICT, code, title);
     }
 
+    /**
+     * 409 CONCURRENT_UPDATE: o banco não deixou concluir por causa de outra operação ao mesmo tempo
+     * (deadlock, falha de serialização ou espera de trava), mesmo depois de repetir. Nada foi
+     * gravado. Não é conflito de horário: esse é SLOT_TAKEN.
+     */
+    public static ApiException concurrentUpdate() {
+        return new ApiException(HttpStatus.CONFLICT, ErrorCode.CONCURRENT_UPDATE, "Não deu pra concluir agora. Tente de novo.",
+                "Outra operação ao mesmo tempo travou esta no banco; nada foi gravado", null);
+    }
+
     public static ApiException invalidField(String field, String message) {
         return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_ERROR, "Campo inválido", null,
                 List.of(new Problem.FieldMessage(field, message)));
