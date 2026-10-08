@@ -443,14 +443,21 @@ void main() {
     await tapKey(tester, 'confirm-submit');
 
     expect(find.text('Horário marcado'), findsNothing);
+    // O aviso sai uma vez, na própria folha, e não por baixo dela.
+    expect(
+      find.text('Este aparelho foi desconectado pela barbearia.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('disconnected-notice')), findsNothing);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNull);
     expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
     expect(phoneField(tester).readOnly, isFalse);
+    expect(phoneField(tester).controller!.text, isEmpty);
 
-    // Agendando de novo neste aparelho, ele fica preso ao João outra vez, com
-    // um código novo.
-    await tapKey(tester, 'confirm-submit');
+    // Agendando de novo neste aparelho com o telefone do João, ele fica preso
+    // ao João outra vez, com um código novo.
+    await fillAndSubmit(tester, name: 'João', phone: '(11) 98765-4321');
     expect(find.text('Horário marcado'), findsOneWidget);
     final code = prefs.getString(DeviceStore.kClientCode);
     expect(code, isNot(joaoCode));

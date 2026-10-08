@@ -58,7 +58,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen> {
     // mesmo resultado (CT-00-06).
     final key = newUuid();
     setState(() => _canceling.add(b.id));
-    String message = 'Horário cancelado.';
+    String? message = 'Horário cancelado.';
     var statusChanged = false;
     try {
       await ref
@@ -74,7 +74,9 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen> {
       message = clientMessageFor(e);
       statusChanged = e.code == ErrorCode.statusChanged;
       if (e.code == ErrorCode.unauthorized) {
-        await ref.read(deviceStoreProvider.notifier).clearSession();
+        // O aviso sai uma vez só, pelo ClienteApp.
+        message = null;
+        await ref.read(deviceStoreProvider.notifier).disconnectedByShop();
       }
     } catch (_) {
       message = 'Algo deu errado. Tente de novo.';
@@ -98,6 +100,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen> {
       } catch (_) {}
       if (!mounted) return;
     }
+    if (message == null) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));

@@ -42,7 +42,8 @@ final barbershopProvider = FutureProvider.autoDispose
 /// Horários do aparelho. Sem aparelho preso a um telefone (nunca teve
 /// agendamento aceito) volta lista vazia, sem chamar o servidor. Código
 /// revogado (troca de celular) dá `UNAUTHORIZED`: o aparelho volta ao estado
-/// sem código e a lista fica vazia, sem tela de erro.
+/// de cliente novo, o app avisa uma vez ("Este aparelho foi desconectado pela
+/// barbearia.") e a lista fica vazia, sem tela de erro.
 final myBookingsProvider = FutureProvider.autoDispose
     .family<List<Booking>, BookingScope>((ref, scope) async {
       final code = ref.watch(
@@ -55,7 +56,7 @@ final myBookingsProvider = FutureProvider.autoDispose
             .listMyBookings(clientCode: code, scope: scope);
       } on ApiProblem catch (e) {
         if (e.code == ErrorCode.unauthorized) {
-          await ref.read(deviceStoreProvider.notifier).clearSession();
+          await ref.read(deviceStoreProvider.notifier).disconnectedByShop();
           return const [];
         }
         rethrow;

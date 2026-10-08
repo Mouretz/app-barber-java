@@ -137,11 +137,27 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
       }
     } on ApiProblem catch (e) {
       if (!mounted) return;
-      if (e.code == ErrorCode.unauthorized ||
-          e.code == ErrorCode.devicePhoneMismatch) {
-        // Código revogado (troca de celular) ou preso a outro número: o
-        // aparelho volta ao estado sem código e o telefone destrava.
-        await ref.read(deviceStoreProvider.notifier).clearSession();
+      if (e.code == ErrorCode.unauthorized) {
+        // Aparelho liberado pelo gerente: volta a cliente novo, e o aviso sai
+        // aqui na folha (uma vez só, sem o SnackBar por baixo dela).
+        await ref
+            .read(deviceStoreProvider.notifier)
+            .disconnectedByShop(notice: false);
+        if (!mounted) return;
+        setState(() {
+          _submitting = false;
+          _phone.clear();
+          _name.clear();
+          _error = kDisconnectedMessage;
+        });
+        return;
+      }
+      if (e.code == ErrorCode.devicePhoneMismatch) {
+        // Código preso a outro número (só por chamada direta): solta o
+        // aparelho e o telefone destrava.
+        await ref
+            .read(deviceStoreProvider.notifier)
+            .disconnectedByShop(notice: false);
         if (!mounted) return;
       }
       if (_slotLostCodes.contains(e.code)) {

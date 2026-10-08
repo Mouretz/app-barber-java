@@ -17,6 +17,7 @@ class DeviceState {
     this.clientCode,
     this.boundPhone,
     this.clientName,
+    this.disconnectedNotice = false,
   });
 
   /// Já leu o que estava salvo.
@@ -33,6 +34,11 @@ class DeviceState {
 
   /// Nome usado no último agendamento aceito (só para preencher o campo).
   final String? clientName;
+
+  /// O aparelho acabou de ser desconectado pela barbearia (401 com o código
+  /// salvo): o app mostra o aviso uma vez e chama
+  /// [DeviceStore.ackDisconnectedNotice]. Só em memória.
+  final bool disconnectedNotice;
 
   /// Aparelho preso a um telefone: tem horários para listar e cancelar.
   bool get hasSession => clientCode != null && boundPhone != null;
@@ -99,18 +105,39 @@ class DeviceStore extends Notifier<DeviceState> {
     await prefs.setString(kClientName, name);
   }
 
-  /// Código revogado (troca de celular liberada pelo gerente) ou recusado pelo
-  /// servidor: o aparelho volta ao estado sem código e destrava o telefone.
-  Future<void> clearSession() async {
+  /// Um pedido com o código salvo deu 401 (aparelho liberado pelo gerente na
+  /// troca de celular): volta ao estado de cliente novo (sem código, telefone
+  /// e nome, campo de telefone livre). Com [notice], pede o aviso "Este
+  /// aparelho foi desconectado pela barbearia." uma vez só: vários 401 seguidos
+  /// (Início e Horários ao mesmo tempo) não repetem o aviso, porque depois do
+  /// primeiro já não há sessão.
+  Future<void> disconnectedByShop({bool notice = true}) async {
     if (state.clientCode == null && state.boundPhone == null) return;
     state = DeviceState(
       hydrated: state.hydrated,
       introSeen: state.introSeen,
+      disconnectedNotice: notice,
+    );
+    await _removeClient();
+  }
+
+  /// O aviso de desconexão já foi mostrado.
+  void ackDisconnectedNotice() {
+    if (!state.disconnectedNotice) return;
+    state = DeviceState(
+      hydrated: state.hydrated,
+      introSeen: state.introSeen,
+      clientCode: state.clientCode,
+      boundPhone: state.boundPhone,
       clientName: state.clientName,
     );
+  }
+
+  Future<void> _removeClient() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(kClientCode);
     await prefs.remove(kBoundPhone);
+    await prefs.remove(kClientName);
   }
 
   /// "Entrar como cliente novo" (só no modo mock): esquece código, telefone e
@@ -118,10 +145,7 @@ class DeviceStore extends Notifier<DeviceState> {
   /// instalação, não do cliente).
   Future<void> forgetClient() async {
     state = DeviceState(hydrated: state.hydrated, introSeen: state.introSeen);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(kClientCode);
-    await prefs.remove(kBoundPhone);
-    await prefs.remove(kClientName);
+    await _removeClient();
   }
 }
 

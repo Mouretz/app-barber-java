@@ -40,6 +40,10 @@ enum ErrorCode {
   );
 }
 
+/// Aviso do PO quando um pedido com o código salvo dá 401 (aparelho liberado
+/// pelo gerente).
+const kDisconnectedMessage = 'Este aparelho foi desconectado pela barbearia.';
+
 /// Texto exato pedido pela QA (CT-04-15).
 const kPhoneOnOtherDeviceMessage =
     'Esse telefone já está em outro aparelho. Fale com a barbearia.';
@@ -95,7 +99,7 @@ String clientMessageFor(ApiProblem p) {
     case ErrorCode.outsideWorkingHours:
       return 'Esse horário está fora do expediente do profissional.';
     case ErrorCode.unauthorized:
-      return 'Este aparelho não está mais ligado ao seu telefone. Agende de novo para ligar.';
+      return kDisconnectedMessage;
     case ErrorCode.notFound:
       return 'Não encontramos isso. Volte e tente de novo.';
     case ErrorCode.validationError:

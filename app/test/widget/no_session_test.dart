@@ -1,3 +1,4 @@
+import 'package:cortaaqui/core/errors/api_problem.dart';
 import 'package:cortaaqui/core/storage/device_store.dart';
 import 'package:cortaaqui/core/time/clock.dart';
 import 'package:cortaaqui/data/mock/mock_cliente_repository.dart';
@@ -100,5 +101,67 @@ void main() {
     expect(find.text('Você ainda não tem horários'), findsOneWidget);
     expectNoError();
     expect(repo.listCalls, hasLength(callsAfter401));
+  });
+
+  testWidgets('aparelho liberado pelo gerente: aviso uma vez só, campo de '
+      'telefone livre e "Você ainda não tem horários"', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = SpyRepo(clock);
+    await repo.releaseClientDevice(
+      barbershopId: MockSeed.shopId,
+      clientId: MockSeed.joaoId,
+    );
+    // Abre no Início, que pede os próximos com o código salvo do João.
+    await pumpCliente(tester, repo: repo, clock: clock, clientCode: joaoCode);
+
+    final notice = find.text('Este aparelho foi desconectado pela barbearia.');
+    expect(notice, findsOneWidget);
+    expect(find.byKey(const ValueKey('disconnected-notice')), findsOneWidget);
+    expect(
+      clientMessageFor(const ApiProblem(ErrorCode.unauthorized, status: 401)),
+      'Este aparelho foi desconectado pela barbearia.',
+    );
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    expectNoError();
+
+    // Estado de cliente novo: nada salvo.
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(DeviceStore.kClientCode), isNull);
+    expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
+    expect(prefs.getString(DeviceStore.kClientName), isNull);
+
+    // O aviso some e não volta em outra tela.
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    expect(notice, findsNothing);
+    await tester.tap(find.text('Horários'));
+    await tester.pumpAndSettle();
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    expect(notice, findsNothing);
+    expectNoError();
+
+    // Campo de telefone livre e vazio no Agendar.
+    await tester.tap(find.text('Início'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Agendar'));
+    await tester.pumpAndSettle();
+    for (final key in [
+      'service-${MockSeed.corteId}',
+      'pro-${MockSeed.caioId}',
+      'day-2026-10-08',
+      'slot-09:00',
+      'booking-continue',
+    ]) {
+      final f = find.byKey(ValueKey(key));
+      await tester.ensureVisible(f);
+      await tester.tap(f);
+      await tester.pumpAndSettle();
+    }
+    final phone = tester.widget<TextField>(
+      find.byKey(const ValueKey('confirm-phone')),
+    );
+    expect(phone.readOnly, isFalse);
+    expect(phone.controller!.text, isEmpty);
+    expect(notice, findsNothing);
   });
 }
