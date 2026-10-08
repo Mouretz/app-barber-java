@@ -6,6 +6,7 @@ import br.com.cortaaqui.catalog.CatalogService;
 import br.com.cortaaqui.catalog.ServiceRow;
 import br.com.cortaaqui.clients.ClientDirectory;
 import br.com.cortaaqui.clients.ClientProfiles;
+import br.com.cortaaqui.common.AgendaLock;
 import br.com.cortaaqui.common.ApiException;
 import br.com.cortaaqui.common.Checks;
 import br.com.cortaaqui.common.ErrorCode;
@@ -30,10 +31,12 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Agendamento: criação (app e Casa), cancelamento do cliente e mudança de status pela Casa.
  * <ul>
- *   <li>Encaixe duplo: barrado pela constraint EXCLUDE entre agendamentos ativos (vira 409 SLOT_TAKEN).</li>
+ *   <li>Encaixe duplo: barrado pela constraint EXCLUDE entre agendamentos ativos (vira 409 SLOT_TAKEN).
+ *       Criar agendamento entra na fila da agenda do profissional ({@link AgendaLock}) para dois
+ *       pedidos sobrepostos não darem deadlock no EXCLUDE (CT-03-07).</li>
  *   <li>Em cima de bloqueio: o trigger ck_bookings_not_on_block recusa o INSERT (409 SLOT_TAKEN), no app e na
- *       Casa. Sem trava extra: corrida com um bloqueio novo só pode terminar em "bloqueio em cima de
- *       agendamento", que é permitido (aparece com overlapsBlock na agenda).</li>
+ *       Casa. Bloqueio e agendamento usam a mesma fila da agenda: quem chega antes vale. Bloqueio
+ *       primeiro = agendamento 409; agendamento primeiro = bloqueio entra por cima (overlapsBlock).</li>
  *   <li>Pedido repetido (mesma Idempotency-Key): devolve o resultado original, sem criar nem mudar nada.</li>
  *   <li>Status só anda pra frente, com UPDATE ... WHERE status = 'SCHEDULED'. Quem chega depois leva 409 STATUS_CHANGED.</li>
  *   <li>Limite de 2 futuros pelo app por cliente, somando barbearias, com a linha do cliente travada.</li>
@@ -54,9 +57,11 @@ public class BookingService {
     private final Professionals professionals;
     private final BookingRules rules;
     private final BookingQueries queries;
+    private final AgendaLock agendaLock;
 
     public BookingService(JdbcClient db, Clock clock, Access access, ClientDirectory directory, ClientProfiles profiles,
-                          CatalogService catalog, Professionals professionals, BookingRules rules, BookingQueries queries) {
+                          CatalogService catalog, Professionals professionals, BookingRules rules, BookingQueries queries,
+                          AgendaLock agendaLock) {
         this.db = db;
         this.clock = clock;
         this.access = access;
@@ -66,6 +71,7 @@ public class BookingService {
         this.professionals = professionals;
         this.rules = rules;
         this.queries = queries;
+        this.agendaLock = agendaLock;
     }
 
     public record ClientInfo(String name, String phone, String email) {
@@ -98,6 +104,8 @@ public class BookingService {
         String typedPhone = Phones.normalize(req.client().phone());
         String fingerprint = Tokens.sha256(String.join("|", "CLIENT", barbershopId.toString(), req.serviceId().toString(),
                 req.professionalId().toString(), start.toString(), Tokens.sha256(clientCode.toLowerCase()), typedPhone));
+        // Fila da agenda antes de qualquer outra trava (cliente, aparelho): ver AgendaLock.
+        agendaLock.lock(barbershopId, req.professionalId());
         Optional<BookingRow> previous = replayCreate(idempotencyKey, fingerprint);
         if (previous.isPresent()) {
             return new Result(previous.get().clientView(clock.instant()), true);
@@ -170,6 +178,8 @@ public class BookingService {
                 access.principal().userId().toString(), req.serviceId().toString(), req.professionalId().toString(),
                 start.toString(), req.source(), String.valueOf(req.clientId()),
                 req.newClient() == null ? "" : String.valueOf(req.newClient().name()) + "/" + req.newClient().phone()));
+        // Fila da agenda antes de qualquer outra trava (cliente): ver AgendaLock.
+        agendaLock.lock(barbershopId, req.professionalId());
         Optional<BookingRow> previous = replayCreate(idempotencyKey, fingerprint);
         if (previous.isPresent()) {
             return new Result(previous.get().staffView(m), true);
