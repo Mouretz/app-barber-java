@@ -32,10 +32,10 @@ class ApiClienteRepository implements ClienteRepository {
   }) async => _todo();
 
   @override
-  Future<ClientBookingCreated> createClientBooking({
+  Future<Booking> createClientBooking({
     required String barbershopId,
     required String idempotencyKey,
-    String? clientCode,
+    required String clientCode,
     required ClientBookingRequest request,
   }) async => _todo();
 
@@ -50,5 +50,6 @@ class ApiClienteRepository implements ClienteRepository {
   Future<Booking> cancelMyBooking({
     required String clientCode,
     required String bookingId,
+    required String idempotencyKey,
   }) async => _todo();
 }

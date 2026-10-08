@@ -12,8 +12,12 @@ String newUuid() {
       '${h.substring(16, 20)}-${h.substring(20)}';
 }
 
-/// Código opaco do cliente (32 caracteres hex). Nunca aparece na tela.
-String newClientCode() => List<int>.generate(
-  16,
-  (_) => _random.nextInt(256),
-).map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+/// Código do aparelho (`X-Client-Code`): UUID v4 com `Random.secure`, gerado
+/// no app (contrato). Só é guardado quando o 1º agendamento entra. Nunca
+/// aparece na tela.
+String newClientCode() => newUuid();
+
+/// `true` se [s] é um UUID (formato do `X-Client-Code` no contrato).
+bool isUuid(String s) => RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+).hasMatch(s);

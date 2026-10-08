@@ -19,6 +19,8 @@ void main() {
       codes.add(m.group(1)!);
     }
     expect(codes, contains('SLOT_IN_PAST'));
+    expect(codes, contains('STATUS_CHANGED'));
+    expect(codes, isNot(contains('INVALID_STATUS_TRANSITION')));
     expect(ErrorCode.values.map((c) => c.wire), codes);
   });
 

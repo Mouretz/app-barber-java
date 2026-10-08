@@ -88,29 +88,27 @@ class MockBlock {
   };
 }
 
-/// Resposta guardada para um `Idempotency-Key`.
+/// Resposta guardada para um `Idempotency-Key` (agendar ou cancelar).
 class MockIdempotencyEntry {
   const MockIdempotencyEntry({
     required this.fingerprint,
     required this.bookingId,
-    this.clientCode,
   });
 
   factory MockIdempotencyEntry.fromJson(Map<String, dynamic> j) =>
       MockIdempotencyEntry(
         fingerprint: j['fingerprint'] as String,
         bookingId: j['bookingId'] as String,
-        clientCode: j['clientCode'] as String?,
       );
 
+  /// O que foi pedido (`create|...` ou `cancel|...`). Mesma chave com outro
+  /// pedido dá `IDEMPOTENCY_KEY_REUSED`.
   final String fingerprint;
   final String bookingId;
-  final String? clientCode;
 
   Map<String, dynamic> toJson() => {
     'fingerprint': fingerprint,
     'bookingId': bookingId,
-    'clientCode': clientCode,
   };
 }
 
@@ -123,8 +121,10 @@ class MockState {
     List<Booking>? bookings,
     List<MockBlock>? blocks,
     Map<String, MockIdempotencyEntry>? idempotency,
+    Set<String>? revokedCodes,
   }) : clients = clients ?? [],
        codes = codes ?? {},
+       revokedCodes = revokedCodes ?? {},
        bookings = bookings ?? [],
        blocks = blocks ?? [],
        idempotency = idempotency ?? {};
@@ -132,20 +132,27 @@ class MockState {
   final List<MockShop> shops;
   final List<MockClient> clients;
 
-  /// Código do aparelho -> id do cliente.
+  /// Código do aparelho -> id do cliente. Um código por cliente: o aparelho
+  /// fica preso ao telefone no primeiro agendamento aceito.
   final Map<String, String> codes;
+
+  /// Códigos revogados pela liberação do gerente (troca de celular). Não voltam
+  /// a valer: qualquer pedido com eles dá `UNAUTHORIZED`.
+  final Set<String> revokedCodes;
   final List<Booking> bookings;
   final List<MockBlock> blocks;
   final Map<String, MockIdempotencyEntry> idempotency;
 
-  /// Versão 2: telefone no formato `+55...`. Estado salvo de outra versão é
+  /// Versão 2: telefone no formato `+55...`. Versão 3: código nasce no
+  /// aparelho, preso ao telefone, com liberação. Estado salvo de outra versão é
   /// descartado e o seed é montado de novo.
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
 
   Map<String, dynamic> toJson() => {
     'version': schemaVersion,
     'clients': clients.map((c) => c.toJson()).toList(),
     'codes': codes,
+    'revokedCodes': revokedCodes.toList(),
     'bookings': bookings.map((b) => b.toJson()).toList(),
     'blocks': blocks.map((b) => b.toJson()).toList(),
     'idempotency': idempotency.map((k, v) => MapEntry(k, v.toJson())),
@@ -160,6 +167,7 @@ class MockState {
           .map((e) => MockClient.fromJson(e as Map<String, dynamic>))
           .toList(),
       codes: (j['codes'] as Map).cast<String, String>(),
+      revokedCodes: (j['revokedCodes'] as List).cast<String>().toSet(),
       bookings: (j['bookings'] as List)
           .map((e) => Booking.fromJson(e as Map<String, dynamic>))
           .toList(),

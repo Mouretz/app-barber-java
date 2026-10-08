@@ -244,47 +244,23 @@ class ClientBookingRequest extends Equatable {
     required this.serviceId,
     required this.professionalId,
     required this.startAt,
-    this.client,
+    required this.client,
   });
 
   final String serviceId;
   final String professionalId;
   final DateTime startAt;
 
-  /// Obrigatório sem código do cliente; ignorado com ele.
-  final ClientInfo? client;
+  /// Sempre vai (contrato): nome e telefone, mesmo com o aparelho já preso.
+  final ClientInfo client;
 
   Map<String, dynamic> toJson() => {
     'serviceId': serviceId,
     'professionalId': professionalId,
     'startAt': toIsoSp(startAt),
-    if (client != null) 'client': client!.toJson(),
+    'client': client.toJson(),
   };
 
   @override
   List<Object?> get props => [serviceId, professionalId, startAt, client];
-}
-
-/// `ClientBookingCreated` do contrato.
-class ClientBookingCreated extends Equatable {
-  const ClientBookingCreated({required this.booking, this.clientCode});
-
-  factory ClientBookingCreated.fromJson(Map<String, dynamic> j) =>
-      ClientBookingCreated(
-        booking: Booking.fromJson(j['booking'] as Map<String, dynamic>),
-        clientCode: j['clientCode'] as String?,
-      );
-
-  final Booking booking;
-
-  /// Só no primeiro agendamento do aparelho. Guardar e nunca mostrar na tela.
-  final String? clientCode;
-
-  Map<String, dynamic> toJson() => {
-    'booking': booking.toJson(),
-    'clientCode': clientCode,
-  };
-
-  @override
-  List<Object?> get props => [booking, clientCode];
 }

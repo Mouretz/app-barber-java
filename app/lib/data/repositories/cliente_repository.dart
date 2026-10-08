@@ -28,19 +28,21 @@ abstract class ClienteRepository {
     required SpDate date,
   });
 
-  /// `POST /barbershops/{id}/bookings` (história 1).
+  /// `POST /barbershops/{id}/bookings` (história 1). Devolve o `Booking`.
   ///
   /// [idempotencyKey] vai no cabeçalho `Idempotency-Key`; repetir a chave devolve
-  /// o mesmo agendamento. [clientCode] vai em `X-Client-Code` quando o aparelho
-  /// já tem código.
+  /// o mesmo agendamento. [clientCode] vai sempre em `X-Client-Code`: o app gera
+  /// o código (UUID v4) e ele só fica preso ao telefone quando o agendamento
+  /// entra; recusa não prende nada. A resposta nunca traz código.
   ///
-  /// `ClientBookingCreated.clientCode` só vem quando o telefone é novo. Telefone
-  /// que já existe, sem código no aparelho, marca o horário mas não recebe código
-  /// (só telefone não basta, CT-04-08).
-  Future<ClientBookingCreated> createClientBooking({
+  /// Recusas do aparelho:
+  /// - telefone preso a outro aparelho: 409 `PHONE_ON_OTHER_DEVICE` (CT-04-15);
+  /// - código preso a outro telefone: 409 `DEVICE_PHONE_MISMATCH`;
+  /// - código liberado pelo gerente (troca de celular): 401 `UNAUTHORIZED`.
+  Future<Booking> createClientBooking({
     required String barbershopId,
     required String idempotencyKey,
-    String? clientCode,
+    required String clientCode,
     required ClientBookingRequest request,
   });
 
@@ -53,8 +55,13 @@ abstract class ClienteRepository {
   });
 
   /// `POST /me/bookings/{id}/cancel` (história 4).
+  ///
+  /// [idempotencyKey] vai em `Idempotency-Key`: a mesma chave repetida devolve
+  /// o mesmo resultado (CT-00-06). Com outra chave, se o status já mudou, o erro
+  /// é `STATUS_CHANGED` (CT-04-10, CT-00-44).
   Future<Booking> cancelMyBooking({
     required String clientCode,
     required String bookingId,
+    required String idempotencyKey,
   });
 }

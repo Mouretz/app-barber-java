@@ -26,16 +26,13 @@ DateTime sp(String local) => DateTime.parse('$local-03:00').toUtc();
 /// "Hoje" dos testes: quarta, 07/10/2026 09:00 em Brasília.
 final kNow = sp('2026-10-07T09:00:00');
 
-/// Código do João (cliente do seed) já salvo no aparelho.
-const joaoCode = 'codigo-do-joao-para-teste-0001';
+/// Código do aparelho do João (cliente do seed), preso ao telefone dele. Nos
+/// testes que passam `clientCode: joaoCode`, este aparelho é o do João.
+const joaoCode = MockSeed.joaoDeviceCode;
 
 /// Seed oficial montado em volta de [kNow]. João tem 1 futuro (amanhã 10:00
 /// com o Caio), 1 concluído e 1 cancelado pela barbearia.
-MockState seededState() {
-  final s = MockSeed.build(kNow);
-  s.codes[joaoCode] = MockSeed.joaoId;
-  return s;
-}
+MockState seededState() => MockSeed.build(kNow);
 
 Future<void> pumpCliente(
   WidgetTester tester, {
@@ -45,9 +42,14 @@ Future<void> pumpCliente(
   String? clientCode,
   String? location,
 }) async {
+  // Aparelho preso: código e telefone salvos juntos. Hoje só o do João.
   SharedPreferences.setMockInitialValues({
     if (introSeen) DeviceStore.kIntroSeen: true,
-    DeviceStore.kClientCode: ?clientCode,
+    if (clientCode != null) ...{
+      DeviceStore.kClientCode: clientCode,
+      DeviceStore.kBoundPhone: MockSeed.joaoPhone,
+      DeviceStore.kClientName: 'João Almeida',
+    },
   });
   tester.view.physicalSize = const Size(2400, 3000);
   tester.view.devicePixelRatio = 2.0;

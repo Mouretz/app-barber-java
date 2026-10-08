@@ -1,4 +1,5 @@
 import 'package:cortaaqui/core/errors/api_problem.dart';
+import 'package:cortaaqui/core/phone/phone.dart';
 import 'package:cortaaqui/core/time/clock.dart';
 import 'package:cortaaqui/core/time/sao_paulo.dart';
 import 'package:cortaaqui/data/mock/mock_cliente_repository.dart';
@@ -35,7 +36,25 @@ void main() {
     );
   });
 
-  Future<ClientBookingCreated> book(
+  /// Código do aparelho de cada telefone nos testes: um aparelho por número
+  /// (o código nasce no aparelho e fica preso ao telefone no 1º aceito).
+  String k(String phone) {
+    final digits = (normalizePhone(phone) ?? phone).replaceAll(
+      RegExp(r'\D'),
+      '',
+    );
+    final tail = digits.padLeft(12, '0');
+    return '00000000-0000-4000-8000-${tail.substring(tail.length - 12)}';
+  }
+
+  final kT1 = k('11987654321');
+
+  /// Códigos de outros aparelhos nos testes (UUID, como no contrato).
+  String kc(int n) => '00000000-0000-4000-8000-${'$n'.padLeft(12, 'a')}';
+
+  /// Agenda pelo app. Por padrão manda nome e telefone com o código do aparelho
+  /// daquele telefone (ou o [code] dado).
+  Future<Booking> book(
     String start, {
     String service = corte,
     String pro = caio,
@@ -46,47 +65,47 @@ void main() {
   }) => repo.createClientBooking(
     barbershopId: shop,
     idempotencyKey: idem ?? nextKey(),
-    clientCode: code,
+    clientCode: code ?? k(phone),
     request: ClientBookingRequest(
       serviceId: service,
       professionalId: pro,
       startAt: sp(start),
-      client: code == null ? ClientInfo(name: name, phone: phone) : null,
+      client: ClientInfo(name: name, phone: phone),
     ),
   );
 
+  Future<Booking> cancel(String code, String bookingId, {String? idem}) =>
+      repo.cancelMyBooking(
+        clientCode: code,
+        bookingId: bookingId,
+        idempotencyKey: idem ?? nextKey(),
+      );
+
   group('agendar (história 1)', () {
     test(
-      'CT-01-01 cria agendado com preço gravado e devolve o código',
+      'CT-01-01 cria agendado com preço gravado; a resposta não traz código e '
+      'o código do aparelho fica preso ao telefone',
       () async {
         final r = await book('2026-10-07T10:00:00');
-        expect(r.clientCode, isNotNull);
-        expect(r.booking.status, BookingStatus.scheduled);
-        expect(r.booking.source, BookingSource.clientApp);
-        expect(r.booking.barbershopId, shop);
-        expect(r.booking.professional.id, caio);
-        expect(r.booking.priceCents, 4000);
-        expect(r.booking.endAt, sp('2026-10-07T10:30:00'));
-        expect(
-          r.booking.client.phone,
-          isNull,
-          reason: 'cliente não vê telefone',
-        );
+        final s = await repo.state;
+        expect(s.codes, {kT1: r.client.id});
+        expect(r.status, BookingStatus.scheduled);
+        expect(r.source, BookingSource.clientApp);
+        expect(r.barbershopId, shop);
+        expect(r.professional.id, caio);
+        expect(r.priceCents, 4000);
+        expect(r.endAt, sp('2026-10-07T10:30:00'));
+        expect(r.client.phone, isNull, reason: 'cliente não vê telefone');
       },
     );
 
-    test(
-      'com o código, não manda nome e telefone e não recebe código de novo',
-      () async {
-        final first = await book('2026-10-07T10:00:00');
-        final second = await book(
-          '2026-10-08T10:00:00',
-          code: first.clientCode,
-        );
-        expect(second.clientCode, isNull);
-        expect(second.booking.client.id, first.booking.client.id);
-      },
-    );
+    test('aparelho preso: o 2º agendamento com o mesmo código vai para o mesmo '
+        'cliente, com ou sem nome e telefone', () async {
+      final first = await book('2026-10-07T10:00:00');
+      final second = await book('2026-10-08T10:00:00');
+      expect(second.client.id, first.client.id);
+      expect((await repo.state).codes, hasLength(1));
+    });
 
     test(
       'CT-01-02 / CT-01-03 antecedência: 30 min aceita, 29 min recusa',
@@ -230,11 +249,12 @@ void main() {
       },
     );
 
-    test('código inválido é 401', () async {
+    test('X-Client-Code fora do formato UUID: 401', () async {
       await expectLater(
-        book('2026-10-07T10:00:00', code: 'nao-existe'),
+        book('2026-10-07T10:00:00', code: 'nao-e-uuid'),
         throwsA(problem(ErrorCode.unauthorized)),
       );
+      expect((await repo.state).codes, isEmpty);
     });
   });
 
@@ -251,10 +271,7 @@ void main() {
     test('CT-01-20 cancelado não conta', () async {
       final a = await book('2026-10-08T10:00:00');
       await book('2026-10-09T10:00:00');
-      await repo.cancelMyBooking(
-        clientCode: a.clientCode!,
-        bookingId: a.booking.id,
-      );
+      await cancel(kT1, a.id);
       await book('2026-10-10T10:00:00');
     });
 
@@ -262,7 +279,7 @@ void main() {
       final s = await repo.state;
       final first = await book('2026-10-07T10:00:00');
       // Vira passado e ganha um status final.
-      final i = s.bookings.indexWhere((b) => b.id == first.booking.id);
+      final i = s.bookings.indexWhere((b) => b.id == first.id);
       s.bookings[i] = s.bookings[i].copyWith(status: BookingStatus.completed);
       await book('2026-10-08T10:00:00');
       await book('2026-10-09T10:00:00');
@@ -281,10 +298,7 @@ void main() {
       );
       final s = await repo.state;
       expect(s.clients, hasLength(1));
-      expect(
-        s.bookings.every((b) => b.client.id == second.booking.client.id),
-        isTrue,
-      );
+      expect(s.bookings.every((b) => b.client.id == second.client.id), isTrue);
     });
 
     test('o que a Casa marca não conta no limite', () async {
@@ -293,9 +307,10 @@ void main() {
       // João tem 1 futuro pelo app no seed; o do Rafael é da Casa.
       await book('2026-10-12T10:00:00', phone: '21912345678');
       await book('2026-10-13T10:00:00', phone: '21912345678');
-      await book('2026-10-14T10:00:00', phone: '11987654321');
+      final joao = MockSeed.joaoDeviceCode;
+      await book('2026-10-14T10:00:00', phone: '11987654321', code: joao);
       await expectLater(
-        book('2026-10-15T10:00:00', phone: '11987654321'),
+        book('2026-10-15T10:00:00', phone: '11987654321', code: joao),
         throwsA(problem(ErrorCode.bookingLimitReached)),
       );
     });
@@ -303,12 +318,11 @@ void main() {
 
   group('pedido repetido (Idempotency-Key)', () {
     test(
-      'CT-00-04 mesma chave 2 vezes: 1 agendamento, mesmo id e código',
+      'CT-00-04 mesma chave 2 vezes: 1 agendamento, mesmo id, sem código',
       () async {
         final a = await book('2026-10-07T10:00:00', idem: 'mesma');
         final b = await book('2026-10-07T10:00:00', idem: 'mesma');
-        expect(b.booking.id, a.booking.id);
-        expect(b.clientCode, a.clientCode);
+        expect(b.id, a.id);
         expect((await repo.state).bookings, hasLength(1));
       },
     );
@@ -323,7 +337,7 @@ void main() {
         book('2026-10-07T10:00:00', idem: 'duplo'),
         book('2026-10-07T10:00:00', idem: 'duplo'),
       ]);
-      expect(r[0].booking.id, r[1].booking.id);
+      expect(r[0].id, r[1].id);
       expect((await repo.state).bookings, hasLength(1));
     });
 
@@ -358,8 +372,7 @@ void main() {
       'CT-04-01 próximos em ordem crescente e histórico decrescente',
       () async {
         final seed = MockSeed.build(clock.now());
-        const code = 'codigo-do-joao';
-        seed.codes[code] = MockSeed.joaoId;
+        const code = MockSeed.joaoDeviceCode;
         repo = MockClienteRepository(clock: clock, initialState: seed);
         await book('2026-10-12T10:00:00', code: code);
         final up = await repo.listMyBookings(clientCode: code);
@@ -379,40 +392,30 @@ void main() {
       'CT-04-02 / CT-04-03 cancelar: exatamente 2h pode, 2h - 1s não',
       () async {
         final a = await book('2026-10-07T12:00:00');
-        final b = await book(
-          '2026-10-07T12:00:00',
-          pro: helena,
-          code: a.clientCode,
-        );
+        final b = await book('2026-10-07T12:00:00', pro: helena);
         clock.set(sp('2026-10-07T10:00:00'));
-        final ok = await repo.cancelMyBooking(
-          clientCode: a.clientCode!,
-          bookingId: a.booking.id,
-        );
+        final ok = await cancel(kT1, a.id);
         expect(ok.status, BookingStatus.canceled);
         expect(ok.canceledBy, CanceledBy.client);
         clock.set(sp('2026-10-07T10:00:01'));
         await expectLater(
-          repo.cancelMyBooking(
-            clientCode: a.clientCode!,
-            bookingId: b.booking.id,
-          ),
+          cancel(kT1, b.id),
           throwsA(problem(ErrorCode.cancelWindowClosed)),
         );
         final s = await repo.state;
         expect(
-          s.bookings.firstWhere((x) => x.id == b.booking.id).status,
+          s.bookings.firstWhere((x) => x.id == b.id).status,
           BookingStatus.scheduled,
         );
       },
     );
 
     test('canCancel vem calculado na lista', () async {
-      final a = await book('2026-10-07T12:00:00');
-      var list = await repo.listMyBookings(clientCode: a.clientCode!);
+      await book('2026-10-07T12:00:00');
+      var list = await repo.listMyBookings(clientCode: kT1);
       expect(list.single.canCancel, isTrue);
       clock.set(sp('2026-10-07T10:01:00'));
-      list = await repo.listMyBookings(clientCode: a.clientCode!);
+      list = await repo.listMyBookings(clientCode: kT1);
       expect(list.single.canCancel, isFalse);
     });
 
@@ -420,10 +423,7 @@ void main() {
       'CT-04-05 cancelado volta para os livres e outro cliente marca',
       () async {
         final a = await book('2026-10-07T12:00:00');
-        await repo.cancelMyBooking(
-          clientCode: a.clientCode!,
-          bookingId: a.booking.id,
-        );
+        await cancel(kT1, a.id);
         final av = await repo.getAvailability(
           barbershopId: shop,
           serviceId: corte,
@@ -435,128 +435,153 @@ void main() {
       },
     );
 
-    test('CT-04-06 código inexistente: 401', () async {
-      await expectLater(
-        repo.listMyBookings(clientCode: 'nao-existe'),
-        throwsA(problem(ErrorCode.unauthorized)),
-      );
-      await expectLater(
-        repo.cancelMyBooking(clientCode: 'nao-existe', bookingId: 'x'),
-        throwsA(problem(ErrorCode.unauthorized)),
-      );
+    test('CT-04-06 código inexistente ou alterado: 401', () async {
+      await book('2026-10-08T10:00:00');
+      for (final code in ['nao-existe', '${kT1}x']) {
+        await expectLater(
+          repo.listMyBookings(clientCode: code),
+          throwsA(problem(ErrorCode.unauthorized)),
+        );
+        await expectLater(
+          cancel(code, 'x'),
+          throwsA(problem(ErrorCode.unauthorized)),
+        );
+      }
     });
 
     test('CT-04-07 não cancela horário de outro cliente', () async {
       final a = await book('2026-10-08T10:00:00');
-      final b = await book('2026-10-08T11:00:00', phone: '21912345678');
+      await book('2026-10-08T11:00:00', phone: '21912345678');
       await expectLater(
-        repo.cancelMyBooking(
-          clientCode: b.clientCode!,
-          bookingId: a.booking.id,
-        ),
+        cancel(k('21912345678'), a.id),
         throwsA(problem(ErrorCode.notFound)),
       );
     });
 
     test(
-      'CT-04-10 cancelado pela barbearia: o cliente recebe "status mudou"',
+      'CT-04-10 cancelado pela barbearia: outra chave recebe STATUS_CHANGED',
       () async {
         final a = await book('2026-10-08T10:00:00');
         final s = await repo.state;
-        final i = s.bookings.indexWhere((x) => x.id == a.booking.id);
+        final i = s.bookings.indexWhere((x) => x.id == a.id);
         s.bookings[i] = s.bookings[i].copyWith(
           status: BookingStatus.canceled,
           canceledBy: CanceledBy.staff,
         );
         await expectLater(
-          repo.cancelMyBooking(
-            clientCode: a.clientCode!,
-            bookingId: a.booking.id,
+          cancel(kT1, a.id),
+          throwsA(
+            isA<ApiProblem>()
+                .having((p) => p.code, 'code', ErrorCode.statusChanged)
+                .having((p) => p.status, 'status', 409),
           ),
-          throwsA(problem(ErrorCode.invalidStatusTransition)),
+        );
+        expect(s.bookings[i].canceledBy, CanceledBy.staff);
+      },
+    );
+
+    test('CT-00-06 mesma Idempotency-Key 2 vezes: mesmo resultado, sem '
+        'STATUS_CHANGED', () async {
+      final a = await book('2026-10-08T10:00:00');
+      final c1 = await cancel(kT1, a.id, idem: 'cancelar-1');
+      final c2 = await cancel(kT1, a.id, idem: 'cancelar-1');
+      expect(c2, c1);
+      expect(c2.status, BookingStatus.canceled);
+    });
+
+    test(
+      'CT-00-44 já cancelado pelo cliente, chave nova: STATUS_CHANGED',
+      () async {
+        final a = await book('2026-10-08T10:00:00');
+        await cancel(kT1, a.id, idem: 'primeira');
+        await expectLater(
+          cancel(kT1, a.id, idem: 'segunda'),
+          throwsA(problem(ErrorCode.statusChanged)),
         );
       },
     );
 
-    test('CT-00-06 cancelar 2 vezes devolve o mesmo resultado', () async {
+    test('CT-00-44 concluído e falta, chave nova: STATUS_CHANGED', () async {
       final a = await book('2026-10-08T10:00:00');
-      final c1 = await repo.cancelMyBooking(
-        clientCode: a.clientCode!,
-        bookingId: a.booking.id,
+      final s = await repo.state;
+      final i = s.bookings.indexWhere((x) => x.id == a.id);
+      for (final st in [BookingStatus.completed, BookingStatus.noShow]) {
+        s.bookings[i] = s.bookings[i].copyWith(status: st);
+        await expectLater(
+          cancel(kT1, a.id),
+          throwsA(problem(ErrorCode.statusChanged)),
+          reason: st.name,
+        );
+        expect(s.bookings[i].status, st);
+      }
+    });
+
+    test('mesma chave de cancelamento para outro horário é recusada', () async {
+      final a = await book('2026-10-08T10:00:00');
+      final b = await book('2026-10-09T10:00:00');
+      await cancel(kT1, a.id, idem: 'c');
+      await expectLater(
+        cancel(kT1, b.id, idem: 'c'),
+        throwsA(problem(ErrorCode.idempotencyKeyReused)),
       );
-      final c2 = await repo.cancelMyBooking(
-        clientCode: a.clientCode!,
-        bookingId: a.booking.id,
-      );
-      expect(c2, c1);
     });
   });
 
-  group('CT-04-08 só telefone não basta', () {
+  group('aparelho preso a um telefone (CT-04-08, CT-04-14 a CT-04-19)', () {
     late MockState seed;
+    const joaoNext = '6f1c2a10-0000-4000-8000-0000000000d1';
     setUp(() {
       seed = MockSeed.build(clock.now());
       repo = MockClienteRepository(clock: clock, initialState: seed);
     });
 
-    test('telefone já cadastrado, aparelho sem código: marca, mas não devolve '
-        'código', () async {
-      final codesBefore = Map.of(seed.codes);
-      final r = await book('2026-10-12T10:00:00', phone: '(11) 98765-4321');
-      expect(r.clientCode, isNull);
-      expect(seed.codes, codesBefore, reason: 'nenhum código novo');
-      final saved = seed.bookings.firstWhere((b) => b.id == r.booking.id);
-      expect(saved.client.id, MockSeed.joaoId, reason: 'mesmo cadastro');
-      expect(
-        seed.clients.where((c) => c.phone == MockSeed.joaoPhone),
-        hasLength(1),
-      );
-    });
+    Future<void> release(String clientId) =>
+        repo.releaseClientDevice(barbershopId: shop, clientId: clientId);
 
-    test('qualquer jeito de escrever o número dá o mesmo resultado', () async {
-      for (final (i, phone) in [
-        '+55 11 98765-4321',
-        '5511987654321',
+    Matcher onOtherDevice() => throwsA(
+      isA<ApiProblem>()
+          .having((p) => p.code, 'code', ErrorCode.phoneOnOtherDevice)
+          .having((p) => p.status, 'status', 409)
+          .having(
+            clientMessageFor,
+            'mensagem',
+            'Esse telefone já está em outro aparelho. Fale com a barbearia.',
+          ),
+    );
+
+    test('CT-04-15 telefone preso a outro aparelho: recusado nas 3 formas e '
+        'sem futuro, nada gravado, K2 não fica preso', () async {
+      final before = seed.bookings.length;
+      for (final phone in [
         '+5511987654321',
-      ].indexed) {
-        // Cada um num repositório novo, para não bater no limite de 2.
-        seed = MockSeed.build(clock.now());
-        repo = MockClienteRepository(clock: clock, initialState: seed);
-        final r = await book('2026-10-1${2 + i}T10:00:00', phone: phone);
-        expect(r.clientCode, isNull, reason: phone);
+        '(11) 98765-4321',
+        '55 11 98765-4321',
+      ]) {
+        await expectLater(
+          book('2026-10-12T10:00:00', phone: phone, code: kc(2)),
+          onOtherDevice(),
+          reason: phone,
+        );
       }
-    });
-
-    test('pedido repetido também não devolve código', () async {
-      final a = await book('2026-10-12T10:00:00', idem: 'rep');
-      final b = await book('2026-10-12T10:00:00', idem: 'rep');
-      expect(a.clientCode, isNull);
-      expect(b.clientCode, isNull);
-      expect(b.booking.id, a.booking.id);
-    });
-
-    test('telefone novo recebe o código uma vez só; depois, sem o código, '
-        'não recebe de novo', () async {
-      final first = await book('2026-10-12T10:00:00', phone: '31998765432');
-      expect(first.clientCode, isNotNull);
-      final again = await book(
-        '2026-10-13T10:00:00',
-        phone: '+55 (31) 99876-5432',
+      // João sem nenhum horário futuro: continua recusado.
+      final i = seed.bookings.indexWhere((b) => b.id == joaoNext);
+      seed.bookings[i] = seed.bookings[i].copyWith(
+        status: BookingStatus.canceled,
+        canceledBy: CanceledBy.client,
       );
-      expect(again.clientCode, isNull);
-      expect(again.booking.client.id, first.booking.client.id);
-    });
-
-    test('o horário marcado sem código conta no limite do telefone', () async {
-      // João já tem 1 futuro pelo app no seed.
-      await book('2026-10-12T10:00:00', phone: '11987654321');
       await expectLater(
-        book('2026-10-13T10:00:00', phone: '(11) 98765-4321'),
-        throwsA(problem(ErrorCode.bookingLimitReached)),
+        book('2026-10-12T10:00:00', code: kc(2)),
+        onOtherDevice(),
+      );
+      expect(seed.bookings, hasLength(before));
+      expect(seed.codes.keys, [MockSeed.joaoDeviceCode]);
+      await expectLater(
+        repo.listMyBookings(clientCode: kc(2)),
+        throwsA(problem(ErrorCode.unauthorized)),
       );
     });
 
-    test('listar ou cancelar só com o telefone é recusado', () async {
+    test('CT-04-08 listar ou cancelar só com o telefone é recusado', () async {
       for (final phone in [
         MockSeed.joaoPhone,
         '11987654321',
@@ -567,19 +592,273 @@ void main() {
           throwsA(problem(ErrorCode.unauthorized)),
         );
         await expectLater(
-          repo.cancelMyBooking(
-            clientCode: phone,
-            bookingId: '6f1c2a10-0000-4000-8000-0000000000d1',
-          ),
+          cancel(phone, joaoNext),
           throwsA(problem(ErrorCode.unauthorized)),
         );
       }
       expect(
-        seed.bookings
-            .firstWhere((b) => b.id == '6f1c2a10-0000-4000-8000-0000000000d1')
-            .status,
+        seed.bookings.firstWhere((b) => b.id == joaoNext).status,
         BookingStatus.scheduled,
       );
+    });
+
+    test('CT-04-14 / CT-04-17 nenhuma resposta traz o código', () async {
+      final r = await book('2026-10-12T10:00:00', phone: '31998765432');
+      expect(r.toJson().toString(), isNot(contains(k('31998765432'))));
+      final list = await repo.listMyBookings(clientCode: k('31998765432'));
+      expect(
+        list.map((b) => b.toJson()).toString(),
+        isNot(contains(k('31998765432'))),
+      );
+    });
+
+    test('CT-04-19 telefone cadastrado só pela Casa: o 1º aparelho fica preso '
+        'e vê os horários; o 2º cai no CT-04-15', () async {
+      final r = await book(
+        '2026-10-12T10:00:00',
+        phone: '(21) 91234-5678',
+        code: kc(3),
+      );
+      expect(r.client.id, MockSeed.rafaelId);
+      expect(seed.codes[kc(3)], MockSeed.rafaelId);
+      final list = await repo.listMyBookings(clientCode: kc(3));
+      expect(list, hasLength(2), reason: 'o da Casa e o novo');
+      await expectLater(
+        book('2026-10-13T10:00:00', phone: '21912345678', code: kc(4)),
+        onOtherDevice(),
+      );
+    });
+
+    test('CT-04-20 / CT-04-21 aparelho preso a T1 mandando T2: '
+        'DEVICE_PHONE_MISMATCH, nada gravado', () async {
+      await book('2026-10-12T10:00:00', phone: '31998765432', code: kc(5));
+      final before = seed.bookings.length;
+      await expectLater(
+        book('2026-10-13T10:00:00', phone: '41998765432', code: kc(5)),
+        throwsA(
+          isA<ApiProblem>()
+              .having((p) => p.code, 'code', ErrorCode.devicePhoneMismatch)
+              .having((p) => p.status, 'status', 409),
+        ),
+      );
+      expect(seed.bookings, hasLength(before));
+      expect(seed.clients.where((c) => c.phone == '+5541998765432'), isEmpty);
+      // O mesmo número escrito de outro jeito passa.
+      await book(
+        '2026-10-13T10:00:00',
+        phone: '+55 31 99876-5432',
+        code: kc(5),
+      );
+    });
+
+    group('CT-04-22 1º agendamento recusado não prende o aparelho', () {
+      Future<void> refused(
+        Future<Booking> Function() attempt,
+        ErrorCode code,
+      ) async {
+        final codesBefore = Map.of(seed.codes);
+        final clientsBefore = seed.clients.length;
+        final bookingsBefore = seed.bookings.length;
+        await expectLater(attempt(), throwsA(problem(code)));
+        expect(seed.codes, codesBefore, reason: 'nada preso');
+        expect(seed.clients, hasLength(clientsBefore), reason: 'nada criado');
+        expect(seed.bookings, hasLength(bookingsBefore));
+      }
+
+      test('menos de 30 min', () async {
+        await refused(
+          () => book('2026-10-07T09:00:00', phone: '31998765432', code: kc(9)),
+          ErrorCode.tooSoon,
+        );
+      });
+
+      test('fora dos 14 dias', () async {
+        await refused(
+          () => book('2026-10-21T10:00:00', phone: '31998765432', code: kc(9)),
+          ErrorCode.dateOutOfRange,
+        );
+      });
+
+      test('horário ocupado', () async {
+        // Seed: João às 10:00 com o Caio no dia 08/10.
+        await refused(
+          () => book('2026-10-08T10:00:00', phone: '31998765432', code: kc(9)),
+          ErrorCode.slotTaken,
+        );
+      });
+
+      test('telefone em outro aparelho', () async {
+        await refused(
+          () => book('2026-10-12T10:00:00', code: kc(9)),
+          ErrorCode.phoneOnOtherDevice,
+        );
+      });
+
+      test('CT-17-25 limite de 2 (telefone liberado que já tem 2 futuros): '
+          'K2 não fica preso; depois que a Casa cancela 1, K2 agenda e vê '
+          'os dois', () async {
+        final second = await book(
+          '2026-10-12T10:00:00',
+          code: MockSeed.joaoDeviceCode,
+        );
+        await release(MockSeed.joaoId);
+        await refused(
+          () => book('2026-10-13T10:00:00', code: kc(9)),
+          ErrorCode.bookingLimitReached,
+        );
+        await expectLater(
+          repo.listMyBookings(clientCode: kc(9)),
+          throwsA(problem(ErrorCode.unauthorized)),
+        );
+        // A Casa cancela 1 dos 2.
+        final i = seed.bookings.indexWhere((b) => b.id == second.id);
+        seed.bookings[i] = seed.bookings[i].copyWith(
+          status: BookingStatus.canceled,
+          canceledBy: CanceledBy.staff,
+        );
+        final novo = await book('2026-10-13T10:00:00', code: kc(9));
+        final up = await repo.listMyBookings(clientCode: kc(9));
+        expect(up.map((b) => b.id), [joaoNext, novo.id]);
+      });
+
+      test('depois de cada recusa de D1, D2 agenda com T1 e fica preso; aí D1 '
+          'cai no CT-04-15', () async {
+        const t = '31998765432';
+        await expectLater(
+          book('2026-10-07T09:00:00', phone: t, code: kc(9)),
+          throwsA(problem(ErrorCode.tooSoon)),
+        );
+        await expectLater(
+          book('2026-10-21T10:00:00', phone: t, code: kc(9)),
+          throwsA(problem(ErrorCode.dateOutOfRange)),
+        );
+        await expectLater(
+          book('2026-10-08T10:00:00', phone: t, code: kc(9)),
+          throwsA(problem(ErrorCode.slotTaken)),
+        );
+        await book('2026-10-12T10:00:00', phone: t, code: kc(8));
+        expect(seed.codes[kc(8)], isNotNull);
+        expect(seed.codes.containsKey(kc(9)), isFalse);
+        await expectLater(
+          book('2026-10-13T10:00:00', phone: t, code: kc(9)),
+          onOtherDevice(),
+        );
+      });
+
+      test('depois da recusa, o mesmo aparelho agenda e fica preso', () async {
+        await expectLater(
+          book('2026-10-07T09:00:00', phone: '31998765432', code: kc(9)),
+          throwsA(problem(ErrorCode.tooSoon)),
+        );
+        await book('2026-10-12T10:00:00', phone: '31998765432', code: kc(9));
+        expect(seed.codes[kc(9)], isNotNull);
+      });
+    });
+
+    group('troca de celular: liberação pelo gerente', () {
+      test(
+        'CT-17-19 o código antigo para de valer e os horários continuam',
+        () async {
+          await release(MockSeed.joaoId);
+          const old = MockSeed.joaoDeviceCode;
+          await expectLater(
+            repo.listMyBookings(clientCode: old),
+            throwsA(problem(ErrorCode.unauthorized)),
+          );
+          await expectLater(
+            cancel(old, joaoNext),
+            throwsA(problem(ErrorCode.unauthorized)),
+          );
+          // Mesmo com o telefone livre, o código revogado não volta a prender.
+          await expectLater(
+            book('2026-10-12T10:00:00', code: old),
+            throwsA(problem(ErrorCode.unauthorized)),
+          );
+          expect(seed.codes.containsKey(old), isFalse);
+          expect(
+            seed.bookings.firstWhere((b) => b.id == joaoNext).status,
+            BookingStatus.scheduled,
+          );
+        },
+      );
+
+      test('CT-17-20 / CT-17-24 o próximo aparelho fica preso e vê os horários '
+          'de todas as barbearias', () async {
+        // Um horário do João em outra barbearia (marcado pela Casa de lá).
+        final base = seed.bookings.firstWhere((b) => b.id == joaoNext);
+        final other = Booking(
+          id: 'outra-barbearia-1',
+          barbershopId: 'outra-barbearia',
+          barbershopName: 'Barbearia Dois',
+          status: BookingStatus.scheduled,
+          source: BookingSource.staff,
+          startAt: base.startAt.add(const Duration(days: 1)),
+          endAt: base.endAt.add(const Duration(days: 1)),
+          service: base.service,
+          professional: base.professional,
+          client: base.client,
+          priceCents: base.priceCents,
+          createdAt: base.createdAt,
+        );
+        seed.bookings.add(other);
+        await release(MockSeed.joaoId);
+        // CT-17-24: o código antigo cai em todas as barbearias.
+        await expectLater(
+          cancel(MockSeed.joaoDeviceCode, other.id),
+          throwsA(problem(ErrorCode.unauthorized)),
+        );
+
+        final r = await book(
+          '2026-10-12T10:00:00',
+          phone: '+55 11 98765-4321',
+          code: kc(10),
+        );
+        expect(r.client.id, MockSeed.joaoId);
+        expect(seed.codes[kc(10)], MockSeed.joaoId);
+        final up = await repo.listMyBookings(clientCode: kc(10));
+        expect(up.map((b) => b.id), containsAll([joaoNext, other.id]));
+        expect(up.map((b) => b.barbershopName).toSet(), {
+          'Barbearia Navalha',
+          'Barbearia Dois',
+        });
+        final past = await repo.listMyBookings(
+          clientCode: kc(10),
+          scope: BookingScope.past,
+        );
+        expect(past, hasLength(2), reason: 'o histórico também passa');
+        // E um 3º aparelho cai no CT-04-15.
+        await expectLater(
+          book('2026-10-13T10:00:00', code: kc(11)),
+          onOtherDevice(),
+        );
+      });
+
+      test('sem agendamento pelo app nesta barbearia: '
+          'DEVICE_RELEASE_NOT_ALLOWED', () async {
+        // Rafael só tem horário marcado pela Casa.
+        await expectLater(
+          release(MockSeed.rafaelId),
+          throwsA(
+            isA<ApiProblem>()
+                .having(
+                  (p) => p.code,
+                  'code',
+                  ErrorCode.deviceReleaseNotAllowed,
+                )
+                .having((p) => p.status, 'status', 409),
+          ),
+        );
+        await expectLater(
+          release('cliente-que-nao-existe'),
+          throwsA(problem(ErrorCode.notFound)),
+        );
+      });
+
+      test('liberar de novo, já sem aparelho, não dá erro', () async {
+        await release(MockSeed.joaoId);
+        await release(MockSeed.joaoId);
+        expect(seed.codes, isEmpty);
+      });
     });
   });
 
@@ -606,7 +885,7 @@ void main() {
 
     test('a resposta para o app Cliente não leva telefone', () async {
       final r = await book('2026-10-12T10:00:00');
-      expect(r.booking.client.phone, isNull);
+      expect(r.client.phone, isNull);
       final s = await repo.state;
       expect(
         s.bookings.single.client.phone,
@@ -656,8 +935,8 @@ void main() {
         );
         expect(av.slots, isNotEmpty, reason: dia);
       }
-      final a = await book('2026-10-07T10:00:00');
-      await book('2026-10-20T10:00:00', code: a.clientCode);
+      await book('2026-10-07T10:00:00');
+      await book('2026-10-20T10:00:00');
     });
   });
 
@@ -679,6 +958,7 @@ void main() {
         );
         final s = await repo.state;
         expect(s.clients.any((c) => c.phone == MockSeed.joaoPhone), isTrue);
+        expect(s.codes, {MockSeed.joaoDeviceCode: MockSeed.joaoId});
       },
     );
 
@@ -707,6 +987,7 @@ void main() {
       final created = await r1.createClientBooking(
         barbershopId: shop,
         idempotencyKey: 'p',
+        clientCode: kc(12),
         request: ClientBookingRequest(
           serviceId: corte,
           professionalId: helena,
@@ -715,8 +996,8 @@ void main() {
         ),
       );
       final r2 = MockClienteRepository(clock: clock, persistence: store);
-      final list = await r2.listMyBookings(clientCode: created.clientCode!);
-      expect(list.single.id, created.booking.id);
+      final list = await r2.listMyBookings(clientCode: kc(12));
+      expect(list.single.id, created.id);
       expect(list.single.startAt, sp('2026-10-09T16:00:00'));
     });
   });

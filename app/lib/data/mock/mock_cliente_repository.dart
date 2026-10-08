@@ -152,73 +152,67 @@ class MockClienteRepository implements ClienteRepository {
   // ------------------------------------------------------------ escrita
 
   @override
-  Future<ClientBookingCreated> createClientBooking({
+  Future<Booking> createClientBooking({
     required String barbershopId,
     required String idempotencyKey,
-    String? clientCode,
+    required String clientCode,
     required ClientBookingRequest request,
   }) async {
     final s = await _begin();
     // Daqui para baixo é tudo síncrono: dois pedidos nunca se intercalam.
     final now = clock.now();
 
-    final phone = request.client == null
-        ? null
-        : normalizePhone(request.client!.phone);
+    final phone = normalizePhone(request.client.phone);
     final fingerprint = [
+      'create',
       barbershopId,
       request.serviceId,
       request.professionalId,
       request.startAt.toUtc().toIso8601String(),
-      clientCode ?? '',
-      phone ?? request.client?.phone ?? '',
+      clientCode,
+      phone ?? request.client.phone,
     ].join('|');
+
+    _rejectInvalidCode(s, clientCode);
 
     // Pedido repetido: mesma chave devolve a mesma resposta.
     final previous = s.idempotency[idempotencyKey];
     if (previous != null) {
-      if (previous.fingerprint != fingerprint) {
-        throw const ApiProblem(
-          ErrorCode.idempotencyKeyReused,
-          status: 422,
-          title: 'Chave já usada com outro pedido',
-        );
-      }
+      _checkSameRequest(previous, fingerprint);
       final b = s.bookings.firstWhere((x) => x.id == previous.bookingId);
-      return ClientBookingCreated(
-        booking: _forClient(b, now),
-        clientCode: previous.clientCode,
-      );
+      return _forClient(b, now);
     }
 
     final shop = _shop(s, barbershopId);
     final service = _service(shop, request.serviceId);
     final professional = _professional(shop, request.professionalId);
 
-    // Quem está marcando.
+    // Quem está marcando. O código nasce no aparelho e fica preso ao telefone
+    // no primeiro agendamento aceito (CT-01-01, CT-04-14).
+    final boundId = s.codes[clientCode];
+    _validateClientInfo(request.client, phone);
     MockClient? client;
-    String? issuedCode;
-    if (clientCode != null) {
-      client = _clientByCode(s, clientCode);
-    } else {
-      final info = request.client;
-      final fields = <ProblemField>[];
-      final name = info?.name.trim() ?? '';
-      if (name.length < 2 || name.length > 80) {
-        fields.add(const ProblemField('name', 'Nome com 2 a 80 letras'));
-      }
-      if (phone == null) {
-        fields.add(const ProblemField('phone', 'Telefone inválido'));
-      }
-      if (fields.isNotEmpty) {
-        throw ApiProblem(
-          ErrorCode.validationError,
-          status: 422,
-          title: 'Dados inválidos',
-          fields: fields,
+    if (boundId != null) {
+      client = s.clients.firstWhere((c) => c.id == boundId);
+      if (phone != client.phone) {
+        throw const ApiProblem(
+          ErrorCode.devicePhoneMismatch,
+          status: 409,
+          title: 'Este aparelho está ligado a outro telefone',
         );
       }
+    } else {
       client = s.clients.where((c) => c.phone == phone).firstOrNull;
+      // Telefone já preso a outro aparelho (CT-04-15). Telefone cadastrado sem
+      // aparelho (pela Casa, ou depois da liberação) passa e fica preso a este
+      // código (CT-04-19).
+      if (client != null && s.codes.containsValue(client.id)) {
+        throw const ApiProblem(
+          ErrorCode.phoneOnOtherDevice,
+          status: 409,
+          title: kPhoneOnOtherDeviceMessage,
+        );
+      }
     }
 
     final start = request.startAt.toUtc();
@@ -284,26 +278,21 @@ class MockClienteRepository implements ClienteRepository {
       );
     }
 
-    // Grava.
-    // Só telefone não basta (decisão do PO, CT-04-08): o código do aparelho só
-    // sai quando o telefone é novo. Telefone que já existe, pedido sem código,
-    // marca o horário no cadastro dele mas não devolve código nenhum, nem o
-    // antigo nem um novo. Assim, saber o telefone de alguém não abre os
-    // horários dessa pessoa.
+    // Grava. Só aqui, com o agendamento aceito, o código fica preso ao
+    // telefone: qualquer recusa acima não grava nada.
     if (client == null) {
       client = MockClient(
         id: newUuid(),
         phone: phone!,
-        name: request.client!.name.trim(),
+        name: request.client.name.trim(),
         createdAt: now,
       );
       s.clients.add(client);
-      issuedCode = newClientCode();
-      s.codes[issuedCode] = client.id;
     }
+    if (boundId == null) s.codes[clientCode] = client.id;
     client.fichaNames.putIfAbsent(
       barbershopId,
-      () => request.client?.name.trim() ?? client!.name,
+      () => request.client.name.trim(),
     );
 
     final booking = Booking(
@@ -328,23 +317,32 @@ class MockClienteRepository implements ClienteRepository {
     s.idempotency[idempotencyKey] = MockIdempotencyEntry(
       fingerprint: fingerprint,
       bookingId: booking.id,
-      clientCode: issuedCode,
     );
     await _commit(s);
-    return ClientBookingCreated(
-      booking: _forClient(booking, now),
-      clientCode: issuedCode,
-    );
+    return _forClient(booking, now);
   }
 
   @override
   Future<Booking> cancelMyBooking({
     required String clientCode,
     required String bookingId,
+    required String idempotencyKey,
   }) async {
     final s = await _begin();
     final client = _clientByCode(s, clientCode);
     final now = clock.now();
+    final fingerprint = ['cancel', bookingId, clientCode].join('|');
+
+    // Mesma chave: devolve o mesmo resultado, sem STATUS_CHANGED (CT-00-06).
+    final previous = s.idempotency[idempotencyKey];
+    if (previous != null) {
+      _checkSameRequest(previous, fingerprint);
+      return _forClient(
+        s.bookings.firstWhere((b) => b.id == previous.bookingId),
+        now,
+      );
+    }
+
     final i = s.bookings.indexWhere(
       (b) => b.id == bookingId && b.client.id == client.id,
     );
@@ -356,14 +354,12 @@ class MockClienteRepository implements ClienteRepository {
       );
     }
     final b = s.bookings[i];
-    if (b.status == BookingStatus.canceled &&
-        b.canceledBy == CanceledBy.client) {
-      return _forClient(b, now); // repetir o cancelamento devolve igual
-    }
+    // Outra chave e o status já mudou (cancelado pela barbearia, pelo próprio
+    // cliente, concluído ou falta): STATUS_CHANGED (CT-04-10, CT-00-44).
     if (b.status != BookingStatus.scheduled) {
       throw const ApiProblem(
-        ErrorCode.invalidStatusTransition,
-        status: 422,
+        ErrorCode.statusChanged,
+        status: 409,
         title: 'O status mudou',
       );
     }
@@ -379,8 +375,61 @@ class MockClienteRepository implements ClienteRepository {
       canceledBy: CanceledBy.client,
     );
     s.bookings[i] = canceled;
+    s.idempotency[idempotencyKey] = MockIdempotencyEntry(
+      fingerprint: fingerprint,
+      bookingId: bookingId,
+    );
     await _commit(s);
     return _forClient(canceled, now);
+  }
+
+  // ------------------------------------------------- Casa (só no mock)
+
+  /// `POST /barbershops/{id}/clients/{clientId}/release-device` (só gerente,
+  /// app Casa). A tela da Casa ainda não existe; o mock já aceita a operação
+  /// para o app Cliente reagir certo:
+  /// - o código preso ao telefone para de valer na hora, em todas as
+  ///   barbearias (401 em tudo);
+  /// - os horários continuam, e o próximo aparelho que agendar com o telefone
+  ///   fica preso a ele e passa a ver esses horários;
+  /// - telefone sem aparelho: não faz nada (204 igual);
+  /// - sem nenhum agendamento pelo app nesta barbearia: 409
+  ///   `DEVICE_RELEASE_NOT_ALLOWED`; cliente sem ficha aqui: 404.
+  Future<void> releaseClientDevice({
+    required String barbershopId,
+    required String clientId,
+  }) async {
+    final s = await _begin();
+    final client = s.clients.where((c) => c.id == clientId).firstOrNull;
+    if (client == null || !client.fichaNames.containsKey(barbershopId)) {
+      throw const ApiProblem(
+        ErrorCode.notFound,
+        status: 404,
+        title: 'Cliente não encontrado',
+      );
+    }
+    final viaApp = s.bookings.any(
+      (b) =>
+          b.client.id == clientId &&
+          b.barbershopId == barbershopId &&
+          b.source == BookingSource.clientApp,
+    );
+    if (!viaApp) {
+      throw const ApiProblem(
+        ErrorCode.deviceReleaseNotAllowed,
+        status: 409,
+        title: 'Sem agendamento pelo app nesta barbearia',
+      );
+    }
+    final codes = s.codes.entries
+        .where((e) => e.value == clientId)
+        .map((e) => e.key)
+        .toList();
+    for (final code in codes) {
+      s.codes.remove(code);
+      s.revokedCodes.add(code);
+    }
+    await _commit(s);
   }
 
   // ------------------------------------------------------------ apoio
@@ -424,7 +473,51 @@ class MockClienteRepository implements ClienteRepository {
     );
   }
 
+  static void _checkSameRequest(MockIdempotencyEntry e, String fingerprint) {
+    if (e.fingerprint != fingerprint) {
+      throw const ApiProblem(
+        ErrorCode.idempotencyKeyReused,
+        status: 422,
+        title: 'Chave já usada com outro pedido',
+      );
+    }
+  }
+
+  /// Código fora do formato (UUID) ou liberado pelo gerente: 401.
+  static void _rejectInvalidCode(MockState s, String code) {
+    if (!isUuid(code) || s.revokedCodes.contains(code)) {
+      throw const ApiProblem(
+        ErrorCode.unauthorized,
+        status: 401,
+        title: 'Código do aparelho inválido',
+      );
+    }
+  }
+
+  static void _validateClientInfo(ClientInfo info, String? phone) {
+    final fields = <ProblemField>[];
+    final name = info.name.trim();
+    if (name.length < 2 || name.length > 80) {
+      fields.add(const ProblemField('name', 'Nome com 2 a 80 letras'));
+    }
+    if (phone == null) {
+      fields.add(const ProblemField('phone', 'Telefone inválido'));
+    }
+    if (fields.isNotEmpty) {
+      throw ApiProblem(
+        ErrorCode.validationError,
+        status: 422,
+        title: 'Dados inválidos',
+        fields: fields,
+      );
+    }
+  }
+
+  /// Código preso a um cliente. Código desconhecido (aparelho que nunca teve
+  /// agendamento aceito) e código revogado dão `UNAUTHORIZED`, sem dizer se o
+  /// telefone existe (CT-04-06).
   MockClient _clientByCode(MockState s, String code) {
+    _rejectInvalidCode(s, code);
     final id = s.codes[code];
     final client = id == null
         ? null

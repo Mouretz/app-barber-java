@@ -31,7 +31,12 @@ const _slotLostCodes = {
   ErrorCode.dateOutOfRange,
 };
 
-/// Confirmação do agendamento. Sem código no aparelho pede nome e telefone.
+/// Confirmação do agendamento. Pede nome e telefone; com o aparelho já preso
+/// a um telefone, o campo de telefone vem travado com o número salvo.
+///
+/// O código do aparelho nasce aqui (o app gera, CT-04-14) e vai em
+/// `X-Client-Code`. Ele só é guardado, e o telefone só trava, quando o
+/// agendamento é aceito. Recusa não guarda nada.
 ///
 /// Pedido repetido: a chave de idempotência é gerada uma vez por confirmação
 /// (ao abrir a folha) e o botão trava enquanto envia. Dois toques mandam a
@@ -57,12 +62,24 @@ class ConfirmBookingSheet extends ConsumerStatefulWidget {
 
 class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
   final String _idempotencyKey = newUuid();
+
+  /// Código novo para o aparelho que ainda não está preso a um telefone. Só é
+  /// guardado se o agendamento for aceito.
+  final String _candidateCode = newClientCode();
   final _name = TextEditingController();
   final _phone = TextEditingController();
   bool _submitting = false;
   String? _nameError;
   String? _phoneError;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final device = ref.read(deviceStoreProvider);
+    _name.text = device.clientName ?? '';
+    if (device.hasSession) _phone.text = formatPhone(device.boundPhone!);
+  }
 
   @override
   void dispose() {
@@ -73,28 +90,30 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
 
   Future<void> _submit() async {
     if (_submitting) return;
-    final code = ref.read(deviceStoreProvider).clientCode;
-    ClientInfo? info;
-    if (code == null) {
-      final name = _name.text.trim();
-      final phoneOk = normalizePhone(_phone.text) != null;
-      setState(() {
-        _nameError = name.length < 2 ? 'Escreva seu nome.' : null;
-        _phoneError = phoneOk
-            ? null
-            : 'Telefone inválido. Use DDD + número, ex.: (11) 98765-4321.';
-        _error = null;
-      });
-      if (_nameError != null || _phoneError != null) return;
-      info = ClientInfo(name: name, phone: _phone.text.trim());
-    }
+    final device = ref.read(deviceStoreProvider);
+    final bound = device.hasSession;
+    final name = _name.text.trim();
+    final phone = bound ? device.boundPhone : normalizePhone(_phone.text);
+    setState(() {
+      _nameError = name.length < 2 ? 'Escreva seu nome.' : null;
+      _phoneError = phone != null
+          ? null
+          : 'Telefone inválido. Use DDD + número, ex.: (11) 98765-4321.';
+      _error = null;
+    });
+    if (_nameError != null || _phoneError != null) return;
+    final code = bound ? device.clientCode! : _candidateCode;
+    final info = ClientInfo(
+      name: name,
+      phone: bound ? device.boundPhone! : _phone.text.trim(),
+    );
 
     setState(() {
       _submitting = true;
       _error = null;
     });
     try {
-      final created = await ref
+      final booking = await ref
           .read(clienteRepositoryProvider)
           .createClientBooking(
             barbershopId: widget.shop.id,
@@ -107,16 +126,24 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
               client: info,
             ),
           );
-      if (created.clientCode != null) {
+      // Aceito: só agora o aparelho fica preso ao telefone.
+      if (!bound) {
         await ref
             .read(deviceStoreProvider.notifier)
-            .saveClientCode(created.clientCode!);
+            .bindAfterAcceptedBooking(code: code, phone: phone!, name: name);
       }
       if (mounted) {
-        Navigator.of(context).pop(ConfirmResult.booked(created.booking));
+        Navigator.of(context).pop(ConfirmResult.booked(booking));
       }
     } on ApiProblem catch (e) {
       if (!mounted) return;
+      if (e.code == ErrorCode.unauthorized ||
+          e.code == ErrorCode.devicePhoneMismatch) {
+        // Código revogado (troca de celular) ou preso a outro número: o
+        // aparelho volta ao estado sem código e o telefone destrava.
+        await ref.read(deviceStoreProvider.notifier).clearSession();
+        if (!mounted) return;
+      }
       if (_slotLostCodes.contains(e.code)) {
         Navigator.of(context).pop(ConfirmResult.slotLost(clientMessageFor(e)));
         return;
@@ -144,7 +171,7 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
   Widget build(BuildContext context) {
     final t = CortaTokens.of(context);
     final text = Theme.of(context).textTheme;
-    final hasCode = ref.watch(deviceStoreProvider).clientCode != null;
+    final locked = ref.watch(deviceStoreProvider).hasSession;
     final today = SpDate.of(ref.watch(clockProvider).now());
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -169,42 +196,47 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
             _Row(label: 'Barbearia', value: widget.shop.name),
             _Row(label: 'Valor', value: formatCents(widget.service.priceCents)),
             const SizedBox(height: 16),
-            if (!hasCode) ...[
-              TextField(
-                key: const ValueKey('confirm-name'),
-                controller: _name,
-                textCapitalization: TextCapitalization.words,
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  labelText: 'Seu nome',
-                  errorText: _nameError,
-                ),
+            TextField(
+              key: const ValueKey('confirm-name'),
+              controller: _name,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: 'Seu nome',
+                errorText: _nameError,
               ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const ValueKey('confirm-phone'),
-                controller: _phone,
-                keyboardType: TextInputType.phone,
-                inputFormatters: [
-                  LengthLimitingTextInputFormatter(kPhoneInputMax),
-                ],
-                decoration: InputDecoration(
-                  labelText: 'Celular com DDD',
-                  hintText: '(11) 98765-4321',
-                  errorText: _phoneError,
-                  errorMaxLines: 2,
-                ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('confirm-phone'),
+              controller: _phone,
+              // Só leitura (não `enabled: false`): o texto continua branco.
+              readOnly: locked,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [
+                LengthLimitingTextInputFormatter(kPhoneInputMax),
+              ],
+              decoration: InputDecoration(
+                labelText: 'Celular com DDD',
+                hintText: '(11) 98765-4321',
+                // Placeholder em #8E8E93 sobre o campo #1C1C1E (5,21:1). O
+                // O cinza escuro do tema para placeholder reprova (CT-09-11).
+                hintStyle: TextStyle(color: t.textMuted),
+                errorText: _phoneError,
+                errorMaxLines: 2,
+                suffixIcon: locked
+                    ? Icon(Icons.lock_outline, size: 18, color: t.textMuted)
+                    : null,
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Seu telefone identifica você na barbearia.',
-                style: text.bodySmall,
-              ),
-            ] else
-              Text(
-                'Seus dados já estão salvos neste aparelho.',
-                style: text.bodySmall,
-              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              locked
+                  ? 'Este aparelho está ligado a este telefone.'
+                  : 'Seu telefone identifica você na barbearia.',
+              key: const ValueKey('confirm-phone-note'),
+              style: text.bodySmall,
+            ),
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(

@@ -15,6 +15,9 @@ import 'harness.dart';
 
 const agendar = '/agendar/${MockSeed.shopId}';
 
+/// Código do aparelho de outra pessoa (UUID, como no contrato).
+const kOutraPessoa = '00000000-0000-4000-8000-00000000beef';
+
 /// Repositório que devolve uma lista fixa de livres (CT-01-17 e CT-01-25).
 class FixedSlotsRepo extends MockClienteRepository {
   FixedSlotsRepo(Clock clock)
@@ -234,8 +237,12 @@ void main() {
     expect(created.single.source, BookingSource.clientApp);
     expect(s.clients.any((c) => c.phone == '+5531998765432'), isTrue);
 
+    // Aceito: só agora o aparelho guarda o código, preso a este telefone.
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(DeviceStore.kClientCode), isNotNull);
+    final code = prefs.getString(DeviceStore.kClientCode);
+    expect(code, isNotNull);
+    expect(prefs.getString(DeviceStore.kBoundPhone), '+5531998765432');
+    expect(s.codes[code], created.single.client.id);
     expect(
       find.text('Dá para cancelar até 2 horas antes, em Horários.'),
       findsOneWidget,
@@ -248,42 +255,206 @@ void main() {
     expect(find.text('Corte com Caio'), findsOneWidget);
   });
 
-  testWidgets('CT-04-08 telefone já cadastrado em aparelho sem código: marca, '
-      'mas o aparelho não recebe código nem vê os horários do João', (
-    tester,
-  ) async {
-    final clock = FixedClock(kNow);
-    final repo = seededRepo(clock);
-    await pumpCliente(tester, repo: repo, clock: clock, location: agendar);
+  /// Abre a folha de confirmação para amanhã 09:00 com o Caio.
+  Future<void> openConfirm(WidgetTester tester) async {
     await choose(tester);
     await tapKey(tester, 'slot-09:00');
     await tapKey(tester, 'booking-continue');
-    await tester.enterText(find.byKey(const ValueKey('confirm-name')), 'João');
-    await tester.enterText(
-      find.byKey(const ValueKey('confirm-phone')),
-      '(11) 98765-4321',
-    );
-    await tapKey(tester, 'confirm-submit');
+  }
 
-    expect(find.text('Horário marcado'), findsOneWidget);
+  Future<void> fillAndSubmit(
+    WidgetTester tester, {
+    required String name,
+    required String phone,
+  }) async {
+    await tester.enterText(find.byKey(const ValueKey('confirm-name')), name);
+    await tester.enterText(find.byKey(const ValueKey('confirm-phone')), phone);
+    await tapKey(tester, 'confirm-submit');
+  }
+
+  TextField phoneField(WidgetTester tester) =>
+      tester.widget<TextField>(find.byKey(const ValueKey('confirm-phone')));
+
+  testWidgets(
+    'CT-04-15 telefone do seed (preso a outro aparelho): texto exato, '
+    'nada salvo e o campo continua livre',
+    (tester) async {
+      final clock = FixedClock(kNow);
+      final repo = seededRepo(clock);
+      await pumpCliente(tester, repo: repo, clock: clock, location: agendar);
+      final before = (await repo.state).bookings.length;
+      await openConfirm(tester);
+      await fillAndSubmit(tester, name: 'João', phone: '(11) 98765-4321');
+
+      expect(
+        find.text(
+          'Esse telefone já está em outro aparelho. Fale com a barbearia.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Horário marcado'), findsNothing);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(DeviceStore.kClientCode), isNull);
+      expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
+      expect(phoneField(tester).readOnly, isFalse);
+      final s = await repo.state;
+      expect(s.bookings, hasLength(before));
+      expect(s.codes.keys, [MockSeed.joaoDeviceCode]);
+
+      // Com outro número, o mesmo aparelho agenda e aí fica preso.
+      await fillAndSubmit(tester, name: 'Ana', phone: '(31) 99876-5432');
+      expect(find.text('Horário marcado'), findsOneWidget);
+      expect(prefs.getString(DeviceStore.kBoundPhone), '+5531998765432');
+    },
+  );
+
+  testWidgets(
+    '1º agendamento recusado por limite: não salva o código nem trava '
+    'o campo (regra do PO)',
+    (tester) async {
+      final clock = FixedClock(kNow);
+      final repo = seededRepo(clock);
+      // João com 2 futuros pelo app e o aparelho dele liberado pelo gerente.
+      await repo.createClientBooking(
+        barbershopId: MockSeed.shopId,
+        idempotencyKey: 'joao-2',
+        clientCode: joaoCode,
+        request: ClientBookingRequest(
+          serviceId: MockSeed.corteId,
+          professionalId: MockSeed.helenaId,
+          startAt: sp('2026-10-09T16:00:00'),
+          client: const ClientInfo(
+            name: 'João Almeida',
+            phone: MockSeed.joaoPhone,
+          ),
+        ),
+      );
+      await repo.releaseClientDevice(
+        barbershopId: MockSeed.shopId,
+        clientId: MockSeed.joaoId,
+      );
+      await pumpCliente(tester, repo: repo, clock: clock, location: agendar);
+      await openConfirm(tester);
+      await fillAndSubmit(tester, name: 'João', phone: '+55 11 98765-4321');
+
+      expect(
+        find.text(
+          clientMessageFor(
+            const ApiProblem(ErrorCode.bookingLimitReached, status: 422),
+          ),
+        ),
+        findsOneWidget,
+      );
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(DeviceStore.kClientCode), isNull);
+      expect(phoneField(tester).readOnly, isFalse);
+      expect(
+        (await repo.state).codes,
+        isEmpty,
+        reason: 'nenhum aparelho preso',
+      );
+    },
+  );
+
+  testWidgets('1º agendamento com horário ocupado: volta para escolher, sem '
+      'salvar o código', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = seededRepo(clock);
+    await pumpCliente(tester, repo: repo, clock: clock, location: agendar);
+    await openConfirm(tester);
+    await repo.createClientBooking(
+      barbershopId: MockSeed.shopId,
+      idempotencyKey: 'outra-pessoa',
+      clientCode: kOutraPessoa,
+      request: ClientBookingRequest(
+        serviceId: MockSeed.corteId,
+        professionalId: MockSeed.caioId,
+        startAt: sp('2026-10-08T09:00:00'),
+        client: const ClientInfo(name: 'Outro', phone: '41999998888'),
+      ),
+    );
+    await fillAndSubmit(tester, name: 'Ana', phone: '31998765432');
     expect(
-      find.textContaining('não ficou ligado ao seu cadastro'),
+      find.text('Esse horário acabou de ficar indisponível'),
       findsOneWidget,
     );
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNull);
-
-    final s = await repo.state;
-    final created = s.bookings.where(
-      (b) => b.startAt == sp('2026-10-08T09:00:00'),
+    expect(
+      (await repo.state).codes.keys,
+      unorderedEquals([MockSeed.joaoDeviceCode, kOutraPessoa]),
     );
-    expect(created.single.client.id, MockSeed.joaoId);
+  });
 
-    await tester.tap(find.text('Ver meus horários'));
-    await tester.pumpAndSettle();
-    expect(find.text('Meus horários'), findsOneWidget);
-    expect(find.text('Amanhã, 09:00'), findsNothing);
-    expect(find.text('Amanhã, 10:00'), findsNothing);
+  testWidgets('aparelho preso: telefone travado com o número salvo e nome '
+      'preenchido', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = seededRepo(clock);
+    await pumpCliente(
+      tester,
+      repo: repo,
+      clock: clock,
+      location: agendar,
+      clientCode: joaoCode,
+    );
+    await openConfirm(tester);
+    expect(phoneField(tester).readOnly, isTrue);
+    expect(phoneField(tester).controller!.text, '(11) 98765-4321');
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('confirm-name')))
+          .controller!
+          .text,
+      'João Almeida',
+    );
+    expect(
+      find.text('Este aparelho está ligado a este telefone.'),
+      findsOneWidget,
+    );
+    await tapKey(tester, 'confirm-submit');
+    expect(find.text('Horário marcado'), findsOneWidget);
+    final s = await repo.state;
+    expect(
+      s.bookings
+          .where((b) => b.startAt == sp('2026-10-08T09:00:00'))
+          .single
+          .client
+          .id,
+      MockSeed.joaoId,
+    );
+  });
+
+  testWidgets('código revogado (troca de celular) ao agendar: o aparelho volta '
+      'ao estado sem código e o telefone destrava', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = seededRepo(clock);
+    await pumpCliente(
+      tester,
+      repo: repo,
+      clock: clock,
+      location: agendar,
+      clientCode: joaoCode,
+    );
+    await openConfirm(tester);
+    await repo.releaseClientDevice(
+      barbershopId: MockSeed.shopId,
+      clientId: MockSeed.joaoId,
+    );
+    await tapKey(tester, 'confirm-submit');
+
+    expect(find.text('Horário marcado'), findsNothing);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(DeviceStore.kClientCode), isNull);
+    expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
+    expect(phoneField(tester).readOnly, isFalse);
+
+    // Agendando de novo neste aparelho, ele fica preso ao João outra vez, com
+    // um código novo.
+    await tapKey(tester, 'confirm-submit');
+    expect(find.text('Horário marcado'), findsOneWidget);
+    final code = prefs.getString(DeviceStore.kClientCode);
+    expect(code, isNot(joaoCode));
+    expect((await repo.state).codes[code], MockSeed.joaoId);
   });
 
   testWidgets('toque duplo no Confirmar cria um agendamento só', (
@@ -299,13 +470,7 @@ void main() {
       clientCode: joaoCode,
     );
     final before = (await repo.state).bookings.length;
-    await choose(tester);
-    await tapKey(tester, 'slot-09:00');
-    await tapKey(tester, 'booking-continue');
-    expect(
-      find.text('Seus dados já estão salvos neste aparelho.'),
-      findsOneWidget,
-    );
+    await openConfirm(tester);
 
     final submit = find.byKey(const ValueKey('confirm-submit'));
     await tester.tap(submit);
@@ -334,6 +499,7 @@ void main() {
     await repo.createClientBooking(
       barbershopId: MockSeed.shopId,
       idempotencyKey: 'outra-pessoa',
+      clientCode: kOutraPessoa,
       request: ClientBookingRequest(
         serviceId: MockSeed.corteId,
         professionalId: MockSeed.caioId,
@@ -379,8 +545,9 @@ void main() {
     expect((await repo.state).bookings.length, before);
   });
 
-  testWidgets('limite de 2: o 3º com o mesmo telefone escrito de outro jeito '
-      'é recusado com mensagem', (tester) async {
+  testWidgets('limite de 2: o 3º no aparelho do João é recusado com mensagem', (
+    tester,
+  ) async {
     final clock = FixedClock(kNow);
     final repo = seededRepo(clock);
     // João já tem 1 futuro no seed; marca mais 1 pelo app.
@@ -392,17 +559,20 @@ void main() {
         serviceId: MockSeed.corteId,
         professionalId: MockSeed.helenaId,
         startAt: sp('2026-10-09T16:00:00'),
+        client: const ClientInfo(
+          name: 'João Almeida',
+          phone: MockSeed.joaoPhone,
+        ),
       ),
     );
-    await pumpCliente(tester, repo: repo, clock: clock, location: agendar);
-    await choose(tester);
-    await tapKey(tester, 'slot-09:00');
-    await tapKey(tester, 'booking-continue');
-    await tester.enterText(find.byKey(const ValueKey('confirm-name')), 'João');
-    await tester.enterText(
-      find.byKey(const ValueKey('confirm-phone')),
-      '+55 11 98765-4321',
+    await pumpCliente(
+      tester,
+      repo: repo,
+      clock: clock,
+      location: agendar,
+      clientCode: joaoCode,
     );
+    await openConfirm(tester);
     await tapKey(tester, 'confirm-submit');
 
     expect(
@@ -414,6 +584,9 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Horário marcado'), findsNothing);
+    // Recusa num aparelho já preso não solta o aparelho.
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(DeviceStore.kClientCode), joaoCode);
   });
 
   testWidgets('dia sem expediente mostra estado vazio', (tester) async {

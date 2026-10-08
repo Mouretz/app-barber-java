@@ -9,7 +9,18 @@ enum ErrorCode {
   outsideWorkingHours('OUTSIDE_WORKING_HOURS'),
   bookingLimitReached('BOOKING_LIMIT_REACHED'),
   cancelWindowClosed('CANCEL_WINDOW_CLOSED'),
-  invalidStatusTransition('INVALID_STATUS_TRANSITION'),
+
+  /// 409. Chave nova num agendamento que já saiu de `SCHEDULED`.
+  statusChanged('STATUS_CHANGED'),
+
+  /// 409. Telefone já preso ao código de outro aparelho.
+  phoneOnOtherDevice('PHONE_ON_OTHER_DEVICE'),
+
+  /// 409. Código do aparelho preso a outro telefone.
+  devicePhoneMismatch('DEVICE_PHONE_MISMATCH'),
+
+  /// 409. Liberação de aparelho em ficha sem agendamento pelo app (Casa).
+  deviceReleaseNotAllowed('DEVICE_RELEASE_NOT_ALLOWED'),
   phoneInUse('PHONE_IN_USE'),
   emailInUse('EMAIL_IN_USE'),
   timeOffHasBookings('TIME_OFF_HAS_BOOKINGS'),
@@ -28,6 +39,10 @@ enum ErrorCode {
     orElse: () => ErrorCode.validationError,
   );
 }
+
+/// Texto exato pedido pela QA (CT-04-15).
+const kPhoneOnOtherDeviceMessage =
+    'Esse telefone já está em outro aparelho. Fale com a barbearia.';
 
 class ProblemField {
   const ProblemField(this.field, this.message);
@@ -67,8 +82,12 @@ String clientMessageFor(ApiProblem p) {
       return 'Você já tem 2 horários marcados. Cancele um para marcar outro.';
     case ErrorCode.cancelWindowClosed:
       return 'Faltam menos de 2 horas. O cancelamento agora é só com a barbearia.';
-    case ErrorCode.invalidStatusTransition:
+    case ErrorCode.statusChanged:
       return 'Esse horário mudou de status. A lista foi atualizada.';
+    case ErrorCode.phoneOnOtherDevice:
+      return kPhoneOnOtherDeviceMessage;
+    case ErrorCode.devicePhoneMismatch:
+      return 'Este aparelho já está ligado a outro telefone.';
     case ErrorCode.slotInPast:
       return 'Esse horário já passou.';
     case ErrorCode.dateOutOfRange:
@@ -76,7 +95,7 @@ String clientMessageFor(ApiProblem p) {
     case ErrorCode.outsideWorkingHours:
       return 'Esse horário está fora do expediente do profissional.';
     case ErrorCode.unauthorized:
-      return 'Não deu para identificar este aparelho. Marque um horário para continuar.';
+      return 'Este aparelho não está mais ligado ao seu telefone. Agende de novo para ligar.';
     case ErrorCode.notFound:
       return 'Não encontramos isso. Volte e tente de novo.';
     case ErrorCode.validationError:

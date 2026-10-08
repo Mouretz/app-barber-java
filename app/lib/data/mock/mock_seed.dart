@@ -21,6 +21,12 @@ abstract final class MockSeed {
 
   static const joaoId = '6f1c2a10-0000-4000-8000-0000000000c1';
   static const joaoPhone = '+5511987654321';
+
+  /// Código do aparelho do João, já preso ao telefone dele. Nenhum celular de
+  /// verdade tem esse código: num celular com o APK mock, agendar com o telefone
+  /// do João cai em "Esse telefone já está em outro aparelho" (checklist da QA,
+  /// seção 8). O Rafael foi marcado pela Casa e não tem aparelho (CT-04-19).
+  static const joaoDeviceCode = '6f1c2a10-0000-4000-8000-0000000000e1';
   static const rafaelId = '6f1c2a10-0000-4000-8000-0000000000c2';
   static const rafaelPhone = '+5521912345678';
 
@@ -134,6 +140,7 @@ abstract final class MockSeed {
           fichaNames: {shopId: 'Rafael Souza'},
         ),
       ],
+      codes: {joaoDeviceCode: joaoId},
       bookings: [
         // João: 1 futuro pelo app e 2 no histórico.
         booking(

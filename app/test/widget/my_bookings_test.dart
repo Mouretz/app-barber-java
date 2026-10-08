@@ -1,9 +1,11 @@
+import 'package:cortaaqui/core/storage/device_store.dart';
 import 'package:cortaaqui/core/time/clock.dart';
 import 'package:cortaaqui/data/mock/mock_cliente_repository.dart';
 import 'package:cortaaqui/data/mock/mock_seed.dart';
 import 'package:cortaaqui/data/models/booking.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'harness.dart';
 
@@ -124,6 +126,78 @@ void main() {
     final s = await repo.state;
     expect(
       s.bookings.firstWhere((x) => x.id == joaoNext).status,
+      BookingStatus.scheduled,
+    );
+  });
+
+  testWidgets('CT-04-10 / CT-00-45 cancelado pela barbearia com a tela aberta: '
+      'STATUS_CHANGED, aviso, recarrega e mostra o status novo', (
+    tester,
+  ) async {
+    final clock = FixedClock(kNow);
+    final repo = seededRepo(clock);
+    await pumpCliente(
+      tester,
+      repo: repo,
+      clock: clock,
+      clientCode: joaoCode,
+      location: '/horarios',
+    );
+    // A Casa cancela enquanto o cliente olha a tela velha.
+    final s = await repo.state;
+    final i = s.bookings.indexWhere((x) => x.id == joaoNext);
+    s.bookings[i] = s.bookings[i].copyWith(
+      status: BookingStatus.canceled,
+      canceledBy: CanceledBy.staff,
+    );
+    await tester.tap(find.byKey(const ValueKey('cancel-$joaoNext')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cancel-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Esse horário mudou para "Cancelado pela barbearia". '
+        'A lista foi atualizada.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('cancel-$joaoNext')), findsNothing);
+    expect(find.text('Nenhum horário marcado'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-past')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('booking-$joaoNext')),
+        matching: find.text('Cancelado pela barbearia'),
+      ),
+      findsOneWidget,
+    );
+    expect(s.bookings[i].canceledBy, CanceledBy.staff);
+  });
+
+  testWidgets('troca de celular: código revogado volta ao estado sem código, '
+      'sem tela de erro', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = seededRepo(clock);
+    await repo.releaseClientDevice(
+      barbershopId: MockSeed.shopId,
+      clientId: MockSeed.joaoId,
+    );
+    await pumpCliente(
+      tester,
+      repo: repo,
+      clock: clock,
+      clientCode: joaoCode,
+      location: '/horarios',
+    );
+    expect(find.text('Nenhum horário marcado'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(DeviceStore.kClientCode), isNull);
+    expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
+    // Os horários continuam no "servidor".
+    expect(
+      (await repo.state).bookings.firstWhere((b) => b.id == joaoNext).status,
       BookingStatus.scheduled,
     );
   });

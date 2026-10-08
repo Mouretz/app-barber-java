@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_problem.dart';
+import '../../../core/ids/uuid.dart';
 import '../../../core/storage/device_store.dart';
 import '../../../core/time/sao_paulo.dart';
 import '../../../data/models/booking.dart';
@@ -51,16 +52,30 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    final code = ref.read(deviceStoreProvider).clientCode;
-    if (code == null) return;
+    final device = ref.read(deviceStoreProvider);
+    if (!device.hasSession) return;
+    // Uma chave por cancelamento confirmado: repetir o mesmo pedido devolve o
+    // mesmo resultado (CT-00-06).
+    final key = newUuid();
     setState(() => _canceling.add(b.id));
     String message = 'Horário cancelado.';
+    var statusChanged = false;
     try {
       await ref
           .read(clienteRepositoryProvider)
-          .cancelMyBooking(clientCode: code, bookingId: b.id);
+          .cancelMyBooking(
+            clientCode: device.clientCode!,
+            bookingId: b.id,
+            idempotencyKey: key,
+          );
     } on ApiProblem catch (e) {
+      // STATUS_CHANGED: avisa e recarrega; a lista mostra o status novo (ex.:
+      // "Cancelado pela barbearia") sem o botão (CT-04-10, CT-00-45).
       message = clientMessageFor(e);
+      statusChanged = e.code == ErrorCode.statusChanged;
+      if (e.code == ErrorCode.unauthorized) {
+        await ref.read(deviceStoreProvider.notifier).clearSession();
+      }
     } catch (_) {
       message = 'Algo deu errado. Tente de novo.';
     }
@@ -68,6 +83,21 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen> {
     setState(() => _canceling.remove(b.id));
     ref.invalidate(myBookingsProvider);
     ref.invalidate(availabilityProvider);
+    if (statusChanged) {
+      // Diz o status novo, que agora está no histórico.
+      try {
+        final past = await ref.read(
+          myBookingsProvider(BookingScope.past).future,
+        );
+        final now = past.where((x) => x.id == b.id).firstOrNull;
+        if (now != null) {
+          message =
+              'Esse horário mudou para "${bookingStatusLabel(now)}". '
+              'A lista foi atualizada.';
+        }
+      } catch (_) {}
+      if (!mounted) return;
+    }
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
