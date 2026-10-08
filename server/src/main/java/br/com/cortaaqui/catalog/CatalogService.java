@@ -16,6 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CatalogService {
 
+    /** Regra do PO (08/10): duração só em múltiplos de 30 (30, 60, 90...), até 8 h. 45 dá 422. */
+    static final int MIN_DURATION = 30;
+    static final int MAX_DURATION = 480;
+    static final int DURATION_STEP = 30;
+
     private static final String COLS = "id, barbershop_id, name, duration_minutes, price_cents, active";
 
     private final JdbcClient db;
@@ -58,7 +63,7 @@ public class CatalogService {
         access.manager(barbershopId);
         Checks.start()
                 .text("name", req.name(), 1, 60, true)
-                .required("durationMinutes", req.durationMinutes()).range("durationMinutes", req.durationMinutes(), 5, 480)
+                .required("durationMinutes", req.durationMinutes()).rangeStep("durationMinutes", req.durationMinutes(), MIN_DURATION, MAX_DURATION, DURATION_STEP)
                 .required("priceCents", req.priceCents()).range("priceCents", req.priceCents(), 0, Integer.MAX_VALUE)
                 .orThrow();
         return db.sql("INSERT INTO services (barbershop_id, name, duration_minutes, price_cents) VALUES (:b, :n, :d, :p) RETURNING " + COLS)
@@ -74,7 +79,7 @@ public class CatalogService {
                 .isTrue(req.name() != null || req.durationMinutes() != null || req.priceCents() != null || req.active() != null,
                         "body", "informe ao menos um campo")
                 .text("name", req.name(), 1, 60, false)
-                .range("durationMinutes", req.durationMinutes(), 5, 480)
+                .rangeStep("durationMinutes", req.durationMinutes(), MIN_DURATION, MAX_DURATION, DURATION_STEP)
                 .range("priceCents", req.priceCents(), 0, Integer.MAX_VALUE)
                 .orThrow();
         return db.sql("UPDATE services SET name = :n, duration_minutes = :d, price_cents = :p, active = :a "

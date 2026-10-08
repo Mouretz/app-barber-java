@@ -54,6 +54,14 @@ public final class Checks {
         return this;
     }
 
+    /** Entre {@code min} e {@code max}, em passos de {@code step} (ex.: duração 30, 60, 90...). Uma mensagem só. */
+    public Checks rangeStep(String field, Integer value, int min, int max, int step) {
+        if (value != null && (value < min || value > max || value % step != 0)) {
+            add(field, "deve estar entre " + min + " e " + max + ", em múltiplos de " + step);
+        }
+        return this;
+    }
+
     public Checks isTrue(boolean ok, String field, String message) {
         if (!ok) {
             add(field, message);
