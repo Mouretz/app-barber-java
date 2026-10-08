@@ -26,8 +26,7 @@ O que continua só no servidor (não aparece no APK de teste):
 - Bloqueio não apaga agendamento.
 - PR #8 (regras do PO: expediente 08:00–21:00, duração em blocos de 30,
   ficha só o gerente edita, profissional desativado perde a barbearia)
-  entra junto desta atualização do servidor. O gerente continua vendo o
-  histórico no caixa; o token do profissional desativado recebe 401.
+  ainda está no pull request, atualizado em cima da `main`.
 
 ## cortaaqui-apk-16 — 8 out 2026
 
