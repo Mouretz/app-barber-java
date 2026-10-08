@@ -12,6 +12,7 @@ const kPhoneInputMax = 20;
 /// - Sem `+`: 10 ou 11 dígitos são número nacional; 12 ou 13 dígitos começando
 ///   com 55 são DDI + número nacional. (Proposta da QA para a pergunta 6.)
 /// - Letras, DDI diferente de 55 e qualquer outro tamanho são recusados.
+/// - Com 11 dígitos nacionais, o primeiro depois do DDD tem que ser 9.
 /// - O texto digitado tem de 10 a 20 caracteres (`ClientInfo.phone` no
 ///   contrato).
 ///
@@ -38,6 +39,9 @@ String? normalizePhone(String raw) {
 
   if (national.length != 10 && national.length != 11) return null;
   if (national.startsWith('0')) return null; // DDD não começa com 0
+  // Celular de 11 dígitos começa com 9 depois do DDD (igual ao `Phones` do
+  // servidor no PR #3).
+  if (national.length == 11 && national[2] != '9') return null;
   return '+55$national';
 }
 

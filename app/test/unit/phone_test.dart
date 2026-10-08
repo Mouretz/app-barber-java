@@ -45,6 +45,8 @@ void main() {
       '+55 987654321', // 9 dígitos depois do 55
       '(01) 98765-4321', // DDD começando com 0
       '+55 (11) 9 8765 - 4321', // 22 caracteres, contrato aceita até 20
+      '(11) 88765-4321', // 11 dígitos sem 9 depois do DDD (igual ao servidor)
+      '+55 11 38765-4321', // 11 dígitos sem 9 depois do DDD, com 55
     ];
     for (final entrada in invalidos) {
       test('"$entrada" é recusado', () {
