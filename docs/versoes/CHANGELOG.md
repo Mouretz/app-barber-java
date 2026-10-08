@@ -12,26 +12,25 @@ sai uma release `cortaaqui-apk-N` com dois arquivos, em modo mock (sem servidor)
 A versão no `pubspec` continua `0.1.0+1` até a primeira tela de verdade. O número
 que importa para baixar é o da release.
 
-## Em geração — merge do PR #5
+## Servidor — PR #8 na main (8 out 2026)
 
-O app na `main` passou a só aceitar `DATA_SOURCE` igual a `mock` ou `api`.
-Valor errado abre a tela de erro de configuração, em vez de fingir que é mock.
-Sem `--dart-define` continua mock. O APK publicado por este Actions é esse app,
-ainda sem servidor.
+O [PR #8](https://github.com/Mouretz/app-barber-java/pull/8) entrou na `main`.
 
-O que continua só no servidor (não aparece no APK de teste):
+- Expediente só entre 08:00 e 21:00, na grade de 30 minutos.
+- Duração de serviço de 30 a 480, em múltiplos de 30.
+- Só o gerente edita ficha de cliente.
+- Profissional desativado perde o acesso naquela barbearia. Se não tiver outra, o token recebe 401. O gerente continua vendo o histórico dele no caixa.
 
-- Caixa do mês e porcentagem do profissional (PR #4).
-- Horário duplicado responde 409, não 500.
-- Bloqueio não apaga agendamento.
-- PR #8 (regras do PO: expediente 08:00–21:00, duração em blocos de 30,
-  ficha só o gerente edita, profissional desativado perde a barbearia)
-  ainda está no pull request, atualizado em cima da `main`.
+Isso não muda o APK. O app de teste continua em modo mock, sem falar com o servidor.
+
+## cortaaqui-apk-17 — 8 out 2026
+
+Merge do PR #5. `DATA_SOURCE` só aceita `mock` ou `api`. Valor errado abre a tela de erro.
+Baixar: [cortaaqui-apk-17](https://github.com/Mouretz/app-barber-java/releases/tag/cortaaqui-apk-17).
 
 ## cortaaqui-apk-16 — 8 out 2026
 
 Mesma casca do APK 11. A pasta `app/` ainda não tinha o PR #5.
-Servidor já tinha os PRs #3, #4, #6 e #7.
 
 ## cortaaqui-apk-11 — 8 out 2026, 00:22
 
