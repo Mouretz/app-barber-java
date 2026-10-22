@@ -29,7 +29,13 @@ enum ErrorCode {
   tooEarly('TOO_EARLY'),
   slotInPast('SLOT_IN_PAST'),
   professionalHasFutureBookings('PROFESSIONAL_HAS_FUTURE_BOOKINGS'),
-  idempotencyKeyReused('IDEMPOTENCY_KEY_REUSED');
+  idempotencyKeyReused('IDEMPOTENCY_KEY_REUSED'),
+
+  /// 409. Disputa momentânea no servidor (trava da agenda). Nada foi gravado;
+  /// a tela fica onde está, com as escolhas, e a pessoa tenta de novo.
+  /// Decidido pelo Eng. Software; ainda falta entrar no `ErrorCode` do
+  /// `api/openapi.yaml`.
+  concurrentUpdate('CONCURRENT_UPDATE');
 
   const ErrorCode(this.wire);
   final String wire;
@@ -43,6 +49,12 @@ enum ErrorCode {
 /// Aviso do PO quando um pedido com o código salvo dá 401 (aparelho liberado
 /// pelo gerente).
 const kDisconnectedMessage = 'Este aparelho foi desconectado pela barbearia.';
+
+/// Texto exato pedido pelo PO para `CONCURRENT_UPDATE`.
+const kConcurrentUpdateMessage = 'Não deu pra concluir agora. Tente de novo.';
+
+/// Texto exato pedido pelo PO para `SLOT_TAKEN`.
+const kSlotTakenMessage = 'Horário ocupado';
 
 /// Texto exato pedido pela QA (CT-04-15).
 const kPhoneOnOtherDeviceMessage =
@@ -79,7 +91,9 @@ class ApiProblem implements Exception {
 String clientMessageFor(ApiProblem p) {
   switch (p.code) {
     case ErrorCode.slotTaken:
-      return 'Esse horário acabou de ficar indisponível';
+      return kSlotTakenMessage;
+    case ErrorCode.concurrentUpdate:
+      return kConcurrentUpdateMessage;
     case ErrorCode.tooSoon:
       return 'Esse horário já não dá mais. Marque com pelo menos 30 minutos de antecedência.';
     case ErrorCode.bookingLimitReached:

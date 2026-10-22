@@ -157,6 +157,9 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
         Navigator.of(context).pop(ConfirmResult.slotLost(clientMessageFor(e)));
         return;
       }
+      // CONCURRENT_UPDATE (e os outros erros daqui pra baixo): a folha fica
+      // aberta, com as escolhas e a mesma chave; o toque de novo é a mesma
+      // tentativa.
       setState(() {
         _submitting = false;
         if (e.hasField('phone')) {

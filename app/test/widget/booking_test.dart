@@ -49,6 +49,38 @@ class FixedSlotsRepo extends MockClienteRepository {
   }
 }
 
+/// Repositório que responde `CONCURRENT_UPDATE` nas [failures] primeiras
+/// tentativas de agendar e depois aceita. Guarda as chaves que recebeu.
+class ConcurrentUpdateRepo extends MockClienteRepository {
+  ConcurrentUpdateRepo(Clock clock, {this.failures = 1})
+    : super(clock: clock, initialState: seededState());
+
+  int failures;
+  final keys = <String>[];
+  final requests = <ClientBookingRequest>[];
+
+  @override
+  Future<Booking> createClientBooking({
+    required String barbershopId,
+    required String idempotencyKey,
+    required String clientCode,
+    required ClientBookingRequest request,
+  }) async {
+    keys.add(idempotencyKey);
+    requests.add(request);
+    if (failures > 0) {
+      failures--;
+      throw const ApiProblem(ErrorCode.concurrentUpdate, status: 409);
+    }
+    return super.createClientBooking(
+      barbershopId: barbershopId,
+      idempotencyKey: idempotencyKey,
+      clientCode: clientCode,
+      request: request,
+    );
+  }
+}
+
 Future<void> tapKey(WidgetTester tester, String key) async {
   final f = find.byKey(ValueKey(key));
   await tester.ensureVisible(f);
@@ -401,10 +433,7 @@ void main() {
       ),
     );
     await fillAndSubmit(tester, name: 'Ana', phone: '31998765432');
-    expect(
-      find.text('Esse horário acabou de ficar indisponível'),
-      findsOneWidget,
-    );
+    expect(find.text('Horário ocupado'), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), isNull);
     expect(
@@ -525,6 +554,49 @@ void main() {
     expect((await repo.state).bookings.length, before + 1);
   });
 
+  testWidgets('CONCURRENT_UPDATE na confirmação: folha fica aberta com as '
+      'escolhas, mostra o aviso e o novo toque agenda', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = ConcurrentUpdateRepo(clock);
+    await pumpCliente(tester, repo: repo, clock: clock, location: agendar);
+    await openConfirm(tester);
+    await fillAndSubmit(tester, name: 'Ana', phone: '31998765432');
+
+    expect(find.text('Confirmar horário'), findsOneWidget);
+    expect(
+      find.text('Não deu pra concluir agora. Tente de novo.'),
+      findsOneWidget,
+    );
+    expect(find.text('Horário ocupado'), findsNothing);
+    expect(find.text('Amanhã, 09:00'), findsOneWidget);
+    expect(find.text('Corte com Caio'), findsNothing);
+    expect(find.text('Caio'), findsWidgets);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('confirm-name')))
+          .controller!
+          .text,
+      'Ana',
+    );
+    expect(phoneField(tester).controller!.text, '31998765432');
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(DeviceStore.kClientCode), isNull);
+
+    await tapKey(tester, 'confirm-submit');
+
+    expect(find.text('Horário marcado'), findsOneWidget);
+    expect(repo.keys, hasLength(2));
+    expect(repo.keys.toSet(), hasLength(1), reason: 'mesma tentativa');
+    expect(repo.requests.last.serviceId, MockSeed.corteId);
+    expect(repo.requests.last.professionalId, MockSeed.caioId);
+    expect(repo.requests.last.startAt, sp('2026-10-08T09:00:00'));
+    expect(repo.requests.last.client.name, 'Ana');
+    expect(
+      (await repo.state).bookings.where((b) => b.client.name == 'Ana'),
+      hasLength(1),
+    );
+  });
+
   testWidgets('CT-01-26 conflito na confirmação: avisa, recarrega e volta '
       'para escolher', (tester) async {
     final clock = FixedClock(kNow);
@@ -555,10 +627,7 @@ void main() {
     await tapKey(tester, 'confirm-submit');
 
     expect(find.text('Confirmar horário'), findsNothing);
-    expect(
-      find.text('Esse horário acabou de ficar indisponível'),
-      findsOneWidget,
-    );
+    expect(find.text('Horário ocupado'), findsOneWidget);
     expect(visibleSlots(tester), isNot(contains('09:00')));
     expect(continueButton(tester).onPressed, isNull);
     expect(
