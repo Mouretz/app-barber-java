@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -128,15 +129,31 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Deadlock (40P01), falha de serialização (40001) ou espera de trava que sobrou depois das
-     * redes de segurança: 409, nunca 500. Criar agendamento e bloqueio já tratam antes
-     * (TransientDbRetry -> SLOT_TAKEN); isto cobre o resto.
+     * Deadlock (40P01), falha de serialização (40001), espera de trava (CannotAcquireLock, 55P03)
+     * ou outra falha de concorrência que sobrou: 409 CONCURRENT_UPDATE, nunca 500. Criar
+     * agendamento, criar bloqueio, mudar status e cancelar já repetem uma vez antes
+     * (TransientDbRetry) e desistem com o mesmo código; isto cobre o resto. Não é SLOT_TAKEN:
+     * conflito de horário de verdade vem do 23P01/trigger, em {@link #integrity}.
      */
     @ExceptionHandler(ConcurrencyFailureException.class)
     public ResponseEntity<Problem> concurrency(ConcurrencyFailureException e) {
         log.warn("conflito de concorrência no banco", e);
-        return respond(ApiException.conflict(ErrorCode.VALIDATION_ERROR,
-                "Conflito com outra operação ao mesmo tempo; tente de novo"));
+        return respond(ApiException.concurrentUpdate());
+    }
+
+    /**
+     * O Spring não classifica todo SQLSTATE do Postgres: espera de trava estourada (55P03,
+     * lock_timeout / NOWAIT) chega como UncategorizedSQLException. Se o SQLSTATE é de
+     * concorrência (40P01, 40001, 55P03), é o mesmo caso de cima: 409 CONCURRENT_UPDATE. O resto
+     * segue como erro não tratado (500), sem esconder bug.
+     */
+    @ExceptionHandler(UncategorizedSQLException.class)
+    public ResponseEntity<Problem> uncategorized(UncategorizedSQLException e) throws UncategorizedSQLException {
+        if (!TransientDbRetry.isConcurrencyFailure(e)) {
+            throw e;
+        }
+        log.warn("conflito de concorrência no banco (não classificado pelo Spring)", e);
+        return respond(ApiException.concurrentUpdate());
     }
 
     @ExceptionHandler(MissingRequestHeaderException.class)

@@ -12,15 +12,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.http.HttpStatus;
 
 class TransientDbRetryTest {
 
     private static RuntimeException db(String state) {
         return new PessimisticLockingFailureException("x", new SQLException("x", state));
-    }
-
-    private static ApiException slotTaken() {
-        return ApiException.conflict(ErrorCode.SLOT_TAKEN, "Horário ocupado");
     }
 
     @Test
@@ -32,22 +29,27 @@ class TransientDbRetryTest {
                 throw db("40P01");
             }
             return "ok";
-        }, TransientDbRetryTest::slotTaken);
+        });
         assertThat(r).isEqualTo("ok");
         assertThat(calls).hasValue(2);
     }
 
     @Test
-    @DisplayName("Deadlock ou serialização nas duas tentativas: erro de negócio (409 SLOT_TAKEN), sem terceira tentativa")
-    void givesUpWithBusinessError() {
+    @DisplayName("Deadlock ou serialização nas duas tentativas: 409 CONCURRENT_UPDATE (nunca SLOT_TAKEN), sem terceira tentativa")
+    void givesUpWithConcurrentUpdate() {
         for (String state : new String[] {"40P01", "40001"}) {
             AtomicInteger calls = new AtomicInteger();
             assertThatThrownBy(() -> TransientDbRetry.once(() -> {
                 calls.incrementAndGet();
                 throw db(state);
-            }, TransientDbRetryTest::slotTaken))
+            }))
                     .isInstanceOf(ApiException.class)
-                    .satisfies(e -> assertThat(((ApiException) e).code()).isEqualTo(ErrorCode.SLOT_TAKEN));
+                    .satisfies(e -> {
+                        ApiException api = (ApiException) e;
+                        assertThat(api.code()).isEqualTo(ErrorCode.CONCURRENT_UPDATE);
+                        assertThat(api.status()).isEqualTo(HttpStatus.CONFLICT);
+                        assertThat(api.title()).isEqualTo("Não deu pra concluir agora. Tente de novo.");
+                    });
             assertThat(calls).hasValue(2);
         }
     }
@@ -60,7 +62,7 @@ class TransientDbRetryTest {
         assertThatThrownBy(() -> TransientDbRetry.once(() -> {
             calls.incrementAndGet();
             throw conflict;
-        }, TransientDbRetryTest::slotTaken)).isSameAs(conflict);
+        })).isSameAs(conflict);
         assertThat(calls).hasValue(1);
     }
 }
