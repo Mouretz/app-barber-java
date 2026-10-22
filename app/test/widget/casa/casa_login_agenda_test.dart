@@ -136,6 +136,48 @@ void main() {
     expect(find.byKey(const ValueKey('overlap-$rafaelBooking')), findsNothing);
   });
 
+  testWidgets('destaque vermelho sempre com texto, contraste AA e sem '
+      'amarelo (decisão 5 do PO)', (tester) async {
+    final g = (await repo.login(
+      email: MockCasaSeed.marinaEmail,
+      password: MockCasaSeed.mockPassword,
+    )).accessToken;
+    await repo.createBlock(
+      g,
+      barbershopId: MockSeed.shopId,
+      professionalId: MockSeed.caioId,
+      startAt: SpDateX.thu.at(9 * 60 + 30),
+      endAt: SpDateX.thu.at(10 * 60 + 30),
+    );
+    await pumpCasa(
+      tester,
+      repo: repo,
+      clock: clock,
+      email: MockCasaSeed.caioEmail,
+    );
+    final flag = find.byKey(const ValueKey('overlap-$joaoBooking'));
+    // A cor nunca é o único sinal: o rótulo em texto aparece junto.
+    expect(
+      find.descendant(of: flag, matching: find.text('Bate com um bloqueio')),
+      findsOneWidget,
+    );
+    final t = CortaTokens.dark;
+    final label = tester.widget<Text>(
+      find.descendant(of: flag, matching: find.byType(Text)),
+    );
+    // Texto do rótulo: AA (4,5:1) sobre o cartão.
+    expect(_contrast(label.style!.color!, t.surface), greaterThan(4.5));
+    // Borda e ícone vermelhos: AA para elemento gráfico (3:1).
+    expect(_contrast(t.error, t.surface), greaterThan(3));
+    final icon = tester.widget<Icon>(
+      find.descendant(of: flag, matching: find.byType(Icon)),
+    );
+    expect(icon.color, t.error);
+    // Vermelho de verdade, nada de amarelo (matiz fora de 40°–70°).
+    final hue = HSVColor.fromColor(t.error).hue;
+    expect(hue < 20 || hue > 340, isTrue, reason: 'matiz $hue');
+  });
+
   testWidgets('CT-07-03 folga depois de marcado: marcação continua e fica '
       'destacada', (tester) async {
     final g = (await repo.login(
@@ -413,4 +455,10 @@ class _KeySpy extends MockCasaRepository {
       request: request,
     );
   }
+}
+
+double _contrast(Color a, Color b) {
+  final la = a.computeLuminance(), lb = b.computeLuminance();
+  final hi = la > lb ? la : lb, lo = la > lb ? lb : la;
+  return (hi + 0.05) / (lo + 0.05);
 }
