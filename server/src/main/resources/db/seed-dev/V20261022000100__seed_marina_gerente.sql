@@ -1,12 +1,12 @@
 -- Seed de DESENVOLVIMENTO (só no perfil "dev"). Nunca usar em produção.
--- 1) Marina: gerente da Barbearia Navalha que NÃO corta. Vínculo com is_manager = true e
+-- 1) Marina Costa (nome igual ao mock da Casa): gerente da Barbearia Navalha que NÃO corta. Vínculo com is_manager = true e
 --    professional_id NULL; não tem linha em professionals (não aparece na equipe nem na agenda).
 --    Login de dev: marina@navalha.dev, com o mesmo hash BCrypt de Caio e Helena
 --    (V20261008000100). Não escreva a senha em texto neste arquivo.
 -- 2) O atendimento concluído do mock (app/lib/data/mock/mock_seed.dart, id ...d2).
 
 INSERT INTO staff_users (id, name, email, password_hash) VALUES
-    ('6f1c2a10-0000-4000-8000-0000000000f3', 'Marina', 'marina@navalha.dev',
+    ('6f1c2a10-0000-4000-8000-0000000000f3', 'Marina Costa', 'marina@navalha.dev',
      '$2a$10$XzhFZClFA9dOcw4ylJ0/cefuPdH04H.zrYV63/Y0czuKmxo5AhGwG');
 
 INSERT INTO memberships (barbershop_id, user_id, is_manager, professional_id) VALUES

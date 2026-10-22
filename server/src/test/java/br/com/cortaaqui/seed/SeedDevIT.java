@@ -103,7 +103,7 @@ class SeedDevIT {
                           FROM staff_users u JOIN memberships m ON m.user_id = u.id
                          WHERE m.barbershop_id = CAST(:b AS uuid) ORDER BY u.name
                         """).param("b", SHOP).query().listOfRows();
-        assertThat(staff).extracting(m -> m.get("name")).containsExactly("Caio", "Helena", "Marina");
+        assertThat(staff).extracting(m -> m.get("name")).containsExactly("Caio", "Helena", "Marina Costa");
         assertThat(staff).extracting(m -> m.get("email"))
                 .containsExactly("caio@navalha.dev", "helena@navalha.dev", "marina@navalha.dev");
         assertThat(staff).extracting(m -> m.get("id").toString())
@@ -114,7 +114,7 @@ class SeedDevIT {
         assertThat(staff).allSatisfy(m ->
                 assertThat(encoder.matches(DEV_PASSWORD, (String) m.get("password_hash"))).isTrue());
         // Marina não corta: nenhuma linha em professionals com o nome dela.
-        assertThat(db.sql("SELECT count(*) FROM professionals WHERE name = 'Marina'").query(Integer.class).single()).isZero();
+        assertThat(db.sql("SELECT count(*) FROM professionals WHERE name LIKE 'Marina%'").query(Integer.class).single()).isZero();
 
         List<Map<String, Object>> services = db.sql("""
                         SELECT id, name, duration_minutes, price_cents FROM services
@@ -154,7 +154,7 @@ class SeedDevIT {
 
         JsonNode me = call(MockMvcRequestBuilders.get("/api/v1/auth/me"), token, 200);
         assertThat(me.get("id").asText()).isEqualTo(MARINA);
-        assertThat(me.get("name").asText()).isEqualTo("Marina");
+        assertThat(me.get("name").asText()).isEqualTo("Marina Costa");
         assertThat(me.get("memberships")).hasSize(1);
         JsonNode m = me.get("memberships").get(0);
         assertThat(m.get("barbershopId").asText()).isEqualTo(SHOP);
@@ -169,9 +169,10 @@ class SeedDevIT {
         JsonNode agenda = call(MockMvcRequestBuilders.get("/api/v1/barbershops/" + SHOP + "/agenda").param("date", today),
                 token, 200);
         assertThat(agenda.get("professionals")).extracting(p -> p.get("professional").get("name").asText())
-                .doesNotContain("Marina").contains("Caio", "Helena");
+                .doesNotContain("Marina Costa").contains("Caio", "Helena");
 
-        // Acesso de gerente: caixa do mês do atendimento concluído, com a parte da casa.
+        // Acesso de gerente: caixa do mês que contém o atendimento (calculado em SP a partir do
+        // start_at gravado; hoje-7 pode cair no mês anterior), nunca o mês corrente fixo.
         JsonNode cash = call(MockMvcRequestBuilders.get("/api/v1/barbershops/" + SHOP + "/cash")
                 .param("month", bookingMonth()), token, 200);
         assertThat(cash.get("totals").get("completedCount").asLong()).isEqualTo(1);
