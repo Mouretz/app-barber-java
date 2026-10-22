@@ -23,5 +23,7 @@ public enum ErrorCode {
     TOO_EARLY,
     SLOT_IN_PAST,
     PROFESSIONAL_HAS_FUTURE_BOOKINGS,
-    IDEMPOTENCY_KEY_REUSED
+    IDEMPOTENCY_KEY_REUSED,
+    /** Outra operação ao mesmo tempo travou esta no banco, mesmo depois de repetir. Nada foi gravado: o app tenta de novo. */
+    CONCURRENT_UPDATE
 }

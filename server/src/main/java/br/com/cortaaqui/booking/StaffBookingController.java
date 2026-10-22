@@ -30,8 +30,7 @@ public class StaffBookingController {
                                               @RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                               @RequestBody BookingService.StaffBookingRequest req) {
         BookingService.Result r = TransientDbRetry.once(
-                () -> ClientBookingController.Idempotent.retryOnSameKey(() -> bookings.createByStaff(barbershopId, idempotencyKey, req)),
-                ClientBookingController.Idempotent::slotTaken);
+                () -> ClientBookingController.Idempotent.retryOnSameKey(() -> bookings.createByStaff(barbershopId, idempotencyKey, req)));
         return ResponseEntity.status(r.replay() ? HttpStatus.OK : HttpStatus.CREATED).body(r.booking());
     }
 
@@ -39,6 +38,8 @@ public class StaffBookingController {
     public BookingView changeStatus(@PathVariable UUID barbershopId, @PathVariable UUID bookingId,
                                     @RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                     @RequestBody StatusChangeRequest req) {
-        return bookings.changeStatusByStaff(barbershopId, bookingId, idempotencyKey, req.status()).booking();
+        // Repete uma vez em deadlock/serialização (a chave de status é desfeita junto); depois, 409 CONCURRENT_UPDATE.
+        return TransientDbRetry.once(() -> bookings.changeStatusByStaff(barbershopId, bookingId, idempotencyKey, req.status()))
+                .booking();
     }
 }

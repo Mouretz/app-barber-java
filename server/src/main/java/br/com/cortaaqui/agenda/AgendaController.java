@@ -1,7 +1,5 @@
 package br.com.cortaaqui.agenda;
 
-import br.com.cortaaqui.common.ApiException;
-import br.com.cortaaqui.common.ErrorCode;
 import br.com.cortaaqui.common.TransientDbRetry;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -38,8 +36,7 @@ public class AgendaController {
     @PostMapping("/blocks")
     @ResponseStatus(HttpStatus.CREATED)
     public BlockService.Block createBlock(@PathVariable UUID barbershopId, @RequestBody BlockService.BlockRequest req) {
-        return TransientDbRetry.once(() -> blocks.create(barbershopId, req),
-                () -> ApiException.conflict(ErrorCode.SLOT_TAKEN, "Horário ocupado"));
+        return TransientDbRetry.once(() -> blocks.create(barbershopId, req));
     }
 
     @DeleteMapping("/blocks/{blockId}")
