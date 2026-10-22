@@ -24,6 +24,17 @@ public class Access {
             (m.is_manager OR EXISTS (SELECT 1 FROM professionals pa
                                       WHERE pa.id = m.professional_id AND pa.active))""";
 
+    /**
+     * O profissional do vínculo, só se ele está ativo nesta barbearia; senão NULL (regra do PO, 08/10,
+     * N3). Gerente que foi desativado como profissional continua gerente aqui, mas deixa de ser
+     * profissional: sem papel PROFESSIONAL no /auth/me e sem "própria agenda" na Casa. Não aparecer
+     * no app Cliente e não receber agendamento novo vem de professionals.active (listas públicas,
+     * livres e criação só aceitam ativo). Use com {@code memberships m}.
+     */
+    public static final String ACTIVE_PROFESSIONAL_ID = """
+            CASE WHEN EXISTS (SELECT 1 FROM professionals pp WHERE pp.id = m.professional_id AND pp.active)
+                 THEN m.professional_id END""";
+
     private final JdbcClient db;
 
     public Access(JdbcClient db) {
@@ -46,7 +57,7 @@ public class Access {
         StaffPrincipal p = principal();
         record Row(MembershipView view, boolean usable) {
         }
-        Row row = db.sql("SELECT m.barbershop_id, b.name, m.is_manager, m.professional_id, " + USABLE_MEMBERSHIP + " AS usable"
+        Row row = db.sql("SELECT m.barbershop_id, b.name, m.is_manager, " + ACTIVE_PROFESSIONAL_ID + ", " + USABLE_MEMBERSHIP + " AS usable"
                         + " FROM memberships m JOIN barbershops b ON b.id = m.barbershop_id"
                         + " WHERE m.barbershop_id = :b AND m.user_id = :u")
                 .param("b", barbershopId).param("u", p.userId())

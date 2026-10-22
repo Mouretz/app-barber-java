@@ -56,6 +56,10 @@ info:
       barbearias dela) e não é revogado na desativação: a checagem é feita a cada pedido,
       e reativar devolve o acesso. Histórico e caixa continuam, e o gerente reativa pelo
       `PATCH` do profissional.
+    - Gerente desativado como profissional (regra do PO, 08/10): continua gerente naquela
+      barbearia, mas deixa de ser profissional. Não aparece no app Cliente, não recebe
+      agendamento novo (nem pelo app nem pela Casa) e no `/auth/me` o vínculo vem só com
+      `MANAGER` e `professionalId` nulo. Reativar devolve o papel `PROFESSIONAL`.
     - Clientes: um cadastro global por telefone e uma ficha por barbearia. A Casa só vê e
       busca as fichas da própria barbearia. Balcão sem telefone cria só a ficha.
     - Código do aparelho (`X-Client-Code`): o app gera o código (UUID v4) e guarda no
@@ -66,6 +70,14 @@ info:
     - Pedido repetido: cancelar, mudar status e agendar levam `Idempotency-Key`. Mesma
       chave devolve o mesmo resultado. Chave nova num agendamento que já saiu de
       `SCHEDULED` dá 409 `STATUS_CHANGED`, e a tela recarrega.
+    - Operação ao mesmo tempo: quando o banco não consegue concluir por causa de outra
+      operação ao mesmo tempo (deadlock, falha de serialização ou espera de trava), o
+      servidor repete uma vez sozinho. Se falhar de novo, devolve 409 `CONCURRENT_UPDATE`
+      e nada fica gravado (nem a `Idempotency-Key`). Vale para agendar (app e Casa),
+      bloquear, mudar status e cancelar, e para qualquer outra escrita que caia nisso. O app
+      mostra "Não deu pra concluir agora. Tente de novo.", fica na mesma tela e mantém o que
+      a pessoa escolheu; pode repetir com a mesma `Idempotency-Key`. Não é conflito de
+      horário: "Horário ocupado" só aparece com `SLOT_TAKEN`.
 servers:
   - url: http://localhost:8080/api/v1
     description: Local (docker compose)
@@ -238,7 +250,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: '`SLOT_TAKEN`, `PHONE_ON_OTHER_DEVICE` ou `DEVICE_PHONE_MISMATCH`'
+          description: '`SLOT_TAKEN`, `PHONE_ON_OTHER_DEVICE`, `DEVICE_PHONE_MISMATCH` ou `CONCURRENT_UPDATE` (operação ao mesmo tempo; tentar de novo)'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -435,7 +447,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409':
-          description: '`SLOT_TAKEN`: bate com outro bloqueio do mesmo profissional (marcação não conta)'
+          description: '`SLOT_TAKEN`: bate com outro bloqueio do mesmo profissional (marcação não conta). `CONCURRENT_UPDATE`: operação ao mesmo tempo; tentar de novo'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -910,6 +922,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MonthlyCash' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /barbershops/{barbershopId}/cash/professionals/{professionalId}:
@@ -1005,12 +1018,12 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: '`SLOT_TAKEN`: o horário bate com agendamento ou bloqueio do mesmo profissional'
+      description: '`SLOT_TAKEN`: o horário bate com agendamento ou bloqueio do mesmo profissional. `CONCURRENT_UPDATE`: outra operação ao mesmo tempo travou esta no banco, nada foi gravado; tentar de novo'
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     StatusChanged:
-      description: '`STATUS_CHANGED`: o agendamento já saiu de `SCHEDULED` por outro pedido'
+      description: '`STATUS_CHANGED`: o agendamento já saiu de `SCHEDULED` por outro pedido. `CONCURRENT_UPDATE`: outra operação ao mesmo tempo travou esta no banco, nada foi gravado; tentar de novo'
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -1040,6 +1053,10 @@ components:
               message: { type: string }
     ErrorCode:
       type: string
+      description: |
+        `CONCURRENT_UPDATE` (409): outra operação ao mesmo tempo travou esta no banco e nada foi gravado.
+        O app mostra "Não deu pra concluir agora. Tente de novo.". Diferente de `SLOT_TAKEN`
+        (horário ocupado de verdade).
       enum:
         - UNAUTHORIZED
         - FORBIDDEN
@@ -1063,6 +1080,7 @@ components:
         - SLOT_IN_PAST
         - PROFESSIONAL_HAS_FUTURE_BOOKINGS
         - IDEMPOTENCY_KEY_REUSED
+        - CONCURRENT_UPDATE
 
     Role:
       type: string
@@ -1106,7 +1124,9 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: Preenchido quando a pessoa também atende (papel PROFESSIONAL).
+          description: |
+            Preenchido quando a pessoa também atende (papel PROFESSIONAL). Nulo quando o
+            profissional dela está desativado nesta barbearia (aí `roles` é só `MANAGER`).
 
     BarbershopSummary:
       type: object

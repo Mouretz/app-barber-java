@@ -245,10 +245,11 @@ public class ScheduleService {
             List<Window> windows = new ArrayList<>();
             for (int j = 0; j < d.windows().size(); j++) {
                 TimeRange r = d.windows().get(j);
+                // Contrato (replaceWorkingHours): o erro aponta days[i].windows[j].start ou .end.
                 String wf = f + ".windows[" + j + "]";
-                if (r == null || r.start() == null || r.end() == null || !HHMM.matcher(r.start()).matches()
-                        || !HHMM.matcher(r.end()).matches()) {
-                    c.add(wf, "hora inválida (HH:mm)");
+                boolean startOk = checkFormat(c, wf + ".start", r == null ? null : r.start());
+                boolean endOk = checkFormat(c, wf + ".end", r == null ? null : r.end());
+                if (!startOk || !endOk) {
                     continue;
                 }
                 Window w = Window.of(r.start(), r.end());
@@ -258,7 +259,8 @@ public class ScheduleService {
                     continue;
                 }
                 if (w.endMinute() <= w.startMinute()) {
-                    c.add(wf, "o fim tem que ser depois do início");
+                    // 21:00–21:00, 18:00–10:00: quem está errado é o fim.
+                    c.add(wf + ".end", "o fim tem que ser depois do início");
                     continue;
                 }
                 windows.add(w);
@@ -273,6 +275,18 @@ public class ScheduleService {
         }
         c.orThrow();
         return out;
+    }
+
+    private static boolean checkFormat(Checks c, String field, String hhmm) {
+        if (hhmm == null) {
+            c.add(field, "obrigatório");
+            return false;
+        }
+        if (!HHMM.matcher(hhmm).matches()) {
+            c.add(field, "hora inválida (HH:mm)");
+            return false;
+        }
+        return true;
     }
 
     /**

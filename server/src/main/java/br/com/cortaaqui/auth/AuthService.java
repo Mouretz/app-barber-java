@@ -118,11 +118,10 @@ public class AuthService {
                 .param("id", userId)
                 .query((rs, i) -> new UserRow(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3), null))
                 .optional().orElseThrow(ApiException::unauthorized);
-        List<MembershipJson> memberships = db.sql("""
-                        SELECT m.barbershop_id, b.name, m.is_manager, m.professional_id
-                          FROM memberships m JOIN barbershops b ON b.id = m.barbershop_id
-                         WHERE m.user_id = :u
-                           AND """ + Access.USABLE_MEMBERSHIP + " ORDER BY b.name")
+        // Gerente desativado como profissional aqui: só MANAGER, professionalId null (regra do PO, 08/10, N3).
+        List<MembershipJson> memberships = db.sql("SELECT m.barbershop_id, b.name, m.is_manager, " + Access.ACTIVE_PROFESSIONAL_ID
+                        + " FROM memberships m JOIN barbershops b ON b.id = m.barbershop_id"
+                        + " WHERE m.user_id = :u AND " + Access.USABLE_MEMBERSHIP + " ORDER BY b.name")
                 .param("u", userId)
                 .query((rs, i) -> {
                     MembershipView m = new MembershipView(rs.getObject(1, UUID.class), rs.getString(2), rs.getBoolean(3),
