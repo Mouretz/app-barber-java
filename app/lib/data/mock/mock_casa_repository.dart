@@ -237,7 +237,19 @@ class MockCasaRepository implements CasaRepository {
       .where((b) => b.barbershopId == shopId && b.professionalId == proId)
       .toList();
 
+  /// O que a Casa recebe: telefone do cliente (o seed do app Cliente não
+  /// guarda na marcação) e `overlapsBlock` calculado na leitura.
   Booking _withOverlap(Booking b) => b.copyWith(
+    client: b.client.phone != null
+        ? null
+        : BookingClientRef(
+            id: b.client.id,
+            name: b.client.name,
+            phone: _s.clients
+                .where((c) => c.id == b.client.id)
+                .firstOrNull
+                ?.phone,
+          ),
     overlapsBlock:
         b.status.occupiesSlot &&
         _blocksOf(
@@ -761,6 +773,12 @@ class MockCasaRepository implements CasaRepository {
   }
 
   // ------------------------------------------------------------ serviços
+
+  @override
+  Future<List<Service>> activeServices({required String barbershopId}) async {
+    await _begin('activeServices');
+    return (_c.services[barbershopId] ?? []).where((x) => x.active).toList();
+  }
 
   @override
   Future<List<Service>> listServices(

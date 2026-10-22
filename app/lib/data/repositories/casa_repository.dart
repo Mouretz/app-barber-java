@@ -103,6 +103,10 @@ abstract class CasaRepository {
     required DateTime endAt,
   });
 
+  /// Serviços ativos para marcar, do `GET /barbershops/{id}` público (o
+  /// profissional não tem `/services`).
+  Future<List<Service>> activeServices({required String barbershopId});
+
   /// `GET /services` (só gerente, inclui inativos).
   Future<List<Service>> listServices(
     String token, {
