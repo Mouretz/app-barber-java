@@ -102,7 +102,12 @@ void main() {
       final own = await repo.getAgenda(t, barbershopId: shop, date: thu);
       expect(own.professionals.single.professional.id, caio);
       expect(
-        repo.getAgenda(t, barbershopId: shop, date: thu, professionalId: helena),
+        repo.getAgenda(
+          t,
+          barbershopId: shop,
+          date: thu,
+          professionalId: helena,
+        ),
         throwsA(problem(ErrorCode.forbidden, 403)),
       );
     });
@@ -336,44 +341,52 @@ void main() {
       );
     });
 
-    test('CT-02-11 Casa cancela a qualquer hora e grava canceledBy STAFF', () async {
-      final t = await caioT();
-      clock.set(sp('2026-10-08T10:10:00'));
-      final b = await repo.changeBookingStatus(
-        t,
-        barbershopId: shop,
-        bookingId: joaoBooking,
-        idempotencyKey: key(),
-        status: BookingStatus.canceled,
-      );
-      expect(b.canceledBy, CanceledBy.staff);
-    });
-
-    test('CONCURRENT_UPDATE do servidor chega como ApiProblem e nada muda', () async {
-      final r = MockCasaRepository(
-        clock: clock,
-        initialState: shared,
-        faultInjector: (op) => op == 'changeBookingStatus'
-            ? const ApiProblem(ErrorCode.concurrentUpdate, status: 409)
-            : null,
-      );
-      final t = (await r.login(email: MockCasaSeed.marinaEmail, password: pw))
-          .accessToken;
-      expect(
-        r.changeBookingStatus(
+    test(
+      'CT-02-11 Casa cancela a qualquer hora e grava canceledBy STAFF',
+      () async {
+        final t = await caioT();
+        clock.set(sp('2026-10-08T10:10:00'));
+        final b = await repo.changeBookingStatus(
           t,
           barbershopId: shop,
           bookingId: joaoBooking,
           idempotencyKey: key(),
           status: BookingStatus.canceled,
-        ),
-        throwsA(problem(ErrorCode.concurrentUpdate, 409)),
-      );
-      expect(
-        shared.bookings.firstWhere((b) => b.id == joaoBooking).status,
-        BookingStatus.scheduled,
-      );
-    });
+        );
+        expect(b.canceledBy, CanceledBy.staff);
+      },
+    );
+
+    test(
+      'CONCURRENT_UPDATE do servidor chega como ApiProblem e nada muda',
+      () async {
+        final r = MockCasaRepository(
+          clock: clock,
+          initialState: shared,
+          faultInjector: (op) => op == 'changeBookingStatus'
+              ? const ApiProblem(ErrorCode.concurrentUpdate, status: 409)
+              : null,
+        );
+        final t = (await r.login(
+          email: MockCasaSeed.marinaEmail,
+          password: pw,
+        )).accessToken;
+        expect(
+          r.changeBookingStatus(
+            t,
+            barbershopId: shop,
+            bookingId: joaoBooking,
+            idempotencyKey: key(),
+            status: BookingStatus.canceled,
+          ),
+          throwsA(problem(ErrorCode.concurrentUpdate, 409)),
+        );
+        expect(
+          shared.bookings.firstWhere((b) => b.id == joaoBooking).status,
+          BookingStatus.scheduled,
+        );
+      },
+    );
   });
 
   group('bloqueio (CT-02)', () {
@@ -466,23 +479,26 @@ void main() {
         active: false,
       );
       final list = await repo.listProfessionals(g, barbershopId: shop);
-      expect({for (final p in list) p.name: p.active}, {
-        'Caio': true,
-        'Helena': false,
-      });
-    });
-
-    test('desativar com horário futuro: PROFESSIONAL_HAS_FUTURE_BOOKINGS', () async {
       expect(
-        repo.updateProfessional(
-          await manager(),
-          barbershopId: shop,
-          professionalId: caio,
-          active: false,
-        ),
-        throwsA(problem(ErrorCode.professionalHasFutureBookings, 409)),
+        {for (final p in list) p.name: p.active},
+        {'Caio': true, 'Helena': false},
       );
     });
+
+    test(
+      'desativar com horário futuro: PROFESSIONAL_HAS_FUTURE_BOOKINGS',
+      () async {
+        expect(
+          repo.updateProfessional(
+            await manager(),
+            barbershopId: shop,
+            professionalId: caio,
+            active: false,
+          ),
+          throwsA(problem(ErrorCode.professionalHasFutureBookings, 409)),
+        );
+      },
+    );
 
     test('gerente desativado como profissional continua gerente, com '
         'professionalId null', () async {
@@ -510,73 +526,86 @@ void main() {
       expect((await repo.me(h)).membershipAt(shop)!.professionalId, helena);
     });
 
-    test('profissional desativado sem outro vínculo: 401 no token e no login', () async {
-      final g = await manager();
-      final c = await caioT();
-      // Tira os futuros do Caio antes (o gerente cancela).
-      for (final id in [
-        '6f1c2a10-0000-4000-8000-0000000000d1',
-        '6f1c2a10-0000-4000-8000-0000000000d4',
-      ]) {
-        await repo.changeBookingStatus(
+    test(
+      'profissional desativado sem outro vínculo: 401 no token e no login',
+      () async {
+        final g = await manager();
+        final c = await caioT();
+        // Tira os futuros do Caio antes (o gerente cancela).
+        for (final id in [
+          '6f1c2a10-0000-4000-8000-0000000000d1',
+          '6f1c2a10-0000-4000-8000-0000000000d4',
+        ]) {
+          await repo.changeBookingStatus(
+            g,
+            barbershopId: shop,
+            bookingId: id,
+            idempotencyKey: key(),
+            status: BookingStatus.canceled,
+          );
+        }
+        await repo.updateProfessional(
           g,
           barbershopId: shop,
-          bookingId: id,
-          idempotencyKey: key(),
-          status: BookingStatus.canceled,
+          professionalId: caio,
+          active: false,
         );
-      }
-      await repo.updateProfessional(
-        g,
-        barbershopId: shop,
-        professionalId: caio,
-        active: false,
-      );
-      expect(repo.me(c), throwsA(problem(ErrorCode.unauthorized, 401)));
-      expect(
-        repo.login(email: MockCasaSeed.caioEmail, password: pw),
-        throwsA(problem(ErrorCode.unauthorized, 401)),
-      );
-    });
+        expect(repo.me(c), throwsA(problem(ErrorCode.unauthorized, 401)));
+        expect(
+          repo.login(email: MockCasaSeed.caioEmail, password: pw),
+          throwsA(problem(ErrorCode.unauthorized, 401)),
+        );
+      },
+    );
 
-    test('profissional desativado aqui com vínculo ativo em outra: 403 aqui', () async {
-      final casa = MockCasaSeed.build();
-      casa.staff
-          .firstWhere((s) => s.id == MockCasaSeed.helenaUserId)
-          .memberships
-        ..clear()
-        ..addAll([
-          MockMembership(
-            barbershopId: shop,
-            roles: {StaffRole.professional},
-            professionalId: helena,
-          ),
-          MockMembership(
-            barbershopId: 'outra-barbearia',
-            roles: {StaffRole.manager},
-          ),
-        ]);
-      final r = MockCasaRepository(
-        clock: clock,
-        initialState: shared,
-        initialCasa: casa,
-      );
-      final g = (await r.login(email: MockCasaSeed.marinaEmail, password: pw))
-          .accessToken;
-      final h = (await r.login(email: MockCasaSeed.helenaEmail, password: pw))
-          .accessToken;
-      await r.updateProfessional(
-        g,
-        barbershopId: shop,
-        professionalId: helena,
-        active: false,
-      );
-      expect(
-        r.getAgenda(h, barbershopId: shop, date: thu),
-        throwsA(problem(ErrorCode.forbidden, 403)),
-      );
-      expect((await r.me(h)).memberships.single.barbershopId, 'outra-barbearia');
-    });
+    test(
+      'profissional desativado aqui com vínculo ativo em outra: 403 aqui',
+      () async {
+        final casa = MockCasaSeed.build();
+        casa.staff
+            .firstWhere((s) => s.id == MockCasaSeed.helenaUserId)
+            .memberships
+          ..clear()
+          ..addAll([
+            MockMembership(
+              barbershopId: shop,
+              roles: {StaffRole.professional},
+              professionalId: helena,
+            ),
+            MockMembership(
+              barbershopId: 'outra-barbearia',
+              roles: {StaffRole.manager},
+            ),
+          ]);
+        final r = MockCasaRepository(
+          clock: clock,
+          initialState: shared,
+          initialCasa: casa,
+        );
+        final g = (await r.login(
+          email: MockCasaSeed.marinaEmail,
+          password: pw,
+        )).accessToken;
+        final h = (await r.login(
+          email: MockCasaSeed.helenaEmail,
+          password: pw,
+        )).accessToken;
+        await r.updateProfessional(
+          g,
+          barbershopId: shop,
+          professionalId: helena,
+          active: false,
+        );
+        expect(
+          r.getAgenda(h, barbershopId: shop, date: thu),
+          throwsA(problem(ErrorCode.forbidden, 403)),
+        );
+        expect(
+          (await r.me(h)).memberships.single.barbershopId,
+          'outra-barbearia',
+        );
+      },
+    );
 
     test('CT-10-07 duração: 30 a 480 em múltiplos de 30', () async {
       final g = await manager();
@@ -616,7 +645,9 @@ void main() {
             g,
             barbershopId: shop,
             professionalId: caio,
-            days: {2: [w]},
+            days: {
+              2: [w],
+            },
           ),
           throwsA(problem(ErrorCode.validationError, 422)),
         );
@@ -657,54 +688,63 @@ void main() {
   });
 
   group('clientes (CT-17)', () {
-    test('CT-17-04 busca por nome sem acento e por telefone com máscara', () async {
-      final t = await caioT();
-      for (final q in ['joão', 'JOAO', 'alm', '(11) 98765-4321', '98765']) {
-        final r = await repo.searchClients(t, barbershopId: shop, q: q);
-        expect(r.map((c) => c.id), contains(MockSeed.joaoId), reason: q);
-      }
-    });
+    test(
+      'CT-17-04 busca por nome sem acento e por telefone com máscara',
+      () async {
+        final t = await caioT();
+        for (final q in ['joão', 'JOAO', 'alm', '(11) 98765-4321', '98765']) {
+          final r = await repo.searchClients(t, barbershopId: shop, q: q);
+          expect(r.map((c) => c.id), contains(MockSeed.joaoId), reason: q);
+        }
+      },
+    );
 
-    test('CT-17-07 profissional cadastra; telefone repetido PHONE_IN_USE', () async {
-      final t = await caioT();
-      final c = await repo.createClient(
-        t,
-        barbershopId: shop,
-        name: 'Ana Lima',
-        phone: '(11) 91234-0000',
-      );
-      expect(c.phone, '+5511912340000');
-      expect(
-        repo.createClient(
+    test(
+      'CT-17-07 profissional cadastra; telefone repetido PHONE_IN_USE',
+      () async {
+        final t = await caioT();
+        final c = await repo.createClient(
           t,
           barbershopId: shop,
-          name: 'Outro',
-          phone: '+55 11 98765-4321',
-        ),
-        throwsA(problem(ErrorCode.phoneInUse, 409)),
-      );
-    });
+          name: 'Ana Lima',
+          phone: '(11) 91234-0000',
+        );
+        expect(c.phone, '+5511912340000');
+        expect(
+          repo.createClient(
+            t,
+            barbershopId: shop,
+            name: 'Outro',
+            phone: '+55 11 98765-4321',
+          ),
+          throwsA(problem(ErrorCode.phoneInUse, 409)),
+        );
+      },
+    );
 
-    test('só o gerente edita a ficha; profissional leva 403 em qualquer uma', () async {
-      final c = await caioT();
-      final h = await helenaT();
-      expect(
-        repo.updateClient(
-          c,
+    test(
+      'só o gerente edita a ficha; profissional leva 403 em qualquer uma',
+      () async {
+        final c = await caioT();
+        final h = await helenaT();
+        expect(
+          repo.updateClient(
+            c,
+            barbershopId: shop,
+            clientId: MockSeed.joaoId,
+            name: 'João A.',
+          ),
+          throwsA(problem(ErrorCode.forbidden, 403)),
+        );
+        final ok = await repo.updateClient(
+          h,
           barbershopId: shop,
           clientId: MockSeed.joaoId,
           name: 'João A.',
-        ),
-        throwsA(problem(ErrorCode.forbidden, 403)),
-      );
-      final ok = await repo.updateClient(
-        h,
-        barbershopId: shop,
-        clientId: MockSeed.joaoId,
-        name: 'João A.',
-      );
-      expect(ok.name, 'João A.');
-    });
+        );
+        expect(ok.name, 'João A.');
+      },
+    );
   });
 
   group('liberar aparelho (CT-17-19 a 28)', () {
@@ -746,7 +786,11 @@ void main() {
         )).client.hasDevice,
         isTrue,
       );
-      await repo.releaseDevice(g, barbershopId: shop, clientId: MockSeed.joaoId);
+      await repo.releaseDevice(
+        g,
+        barbershopId: shop,
+        clientId: MockSeed.joaoId,
+      );
       expect(
         cliente.listMyBookings(clientCode: MockSeed.joaoDeviceCode),
         throwsA(problem(ErrorCode.unauthorized, 401)),
@@ -779,22 +823,29 @@ void main() {
       }
     }
 
-    test('CT-08-15 gerente: total, linhas e shopCents; casa + pros = bruto', () async {
-      final g = await manager();
-      await completeAll(g);
-      final cash = await repo.getCash(g, barbershopId: shop, month: '2026-10');
-      expect(cash.totals.grossCents, 10000);
-      expect(cash.totals.shopCents, 4000);
-      expect(cash.byProfessional, hasLength(2));
-      expect(
-        cash.totals.shopCents! +
-            cash.byProfessional.fold<int>(
-              0,
-              (s, r) => s + r.totals.professionalCents,
-            ),
-        cash.totals.grossCents,
-      );
-    });
+    test(
+      'CT-08-15 gerente: total, linhas e shopCents; casa + pros = bruto',
+      () async {
+        final g = await manager();
+        await completeAll(g);
+        final cash = await repo.getCash(
+          g,
+          barbershopId: shop,
+          month: '2026-10',
+        );
+        expect(cash.totals.grossCents, 10000);
+        expect(cash.totals.shopCents, 4000);
+        expect(cash.byProfessional, hasLength(2));
+        expect(
+          cash.totals.shopCents! +
+              cash.byProfessional.fold<int>(
+                0,
+                (s, r) => s + r.totals.professionalCents,
+              ),
+          cash.totals.grossCents,
+        );
+      },
+    );
 
     test('CT-08-13 profissional: só a linha dele e sem shopCents', () async {
       await completeAll(await manager());
@@ -809,27 +860,30 @@ void main() {
       expect(cash.totals.professionalCents, 6000);
     });
 
-    test('CT-08-10 profissional pedindo outro: 403; o dele sem shopPercent', () async {
-      await completeAll(await manager());
-      final c = await caioT();
-      expect(
-        repo.getProfessionalCash(
+    test(
+      'CT-08-10 profissional pedindo outro: 403; o dele sem shopPercent',
+      () async {
+        await completeAll(await manager());
+        final c = await caioT();
+        expect(
+          repo.getProfessionalCash(
+            c,
+            barbershopId: shop,
+            professionalId: helena,
+            month: '2026-10',
+          ),
+          throwsA(problem(ErrorCode.forbidden, 403)),
+        );
+        final own = await repo.getProfessionalCash(
           c,
           barbershopId: shop,
-          professionalId: helena,
+          professionalId: caio,
           month: '2026-10',
-        ),
-        throwsA(problem(ErrorCode.forbidden, 403)),
-      );
-      final own = await repo.getProfessionalCash(
-        c,
-        barbershopId: shop,
-        professionalId: caio,
-        month: '2026-10',
-      );
-      expect(own.totals.shopCents, isNull);
-      expect(own.bookings.every((b) => b.shopPercent == null), isTrue);
-    });
+        );
+        expect(own.totals.shopCents, isNull);
+        expect(own.bookings.every((b) => b.shopPercent == null), isTrue);
+      },
+    );
 
     test('CT-20-10 /commission só do gerente', () async {
       final c = await caioT();
