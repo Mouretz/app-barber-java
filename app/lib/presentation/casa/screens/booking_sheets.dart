@@ -110,7 +110,7 @@ class _StatusSheetState extends ConsumerState<StatusSheet> {
     });
     try {
       await ref
-          .read(casaRepositoryProvider)
+          .read(casaApiProvider)
           .changeBookingStatus(
             s.token,
             barbershopId: s.shopId,
@@ -227,7 +227,7 @@ class _StaffBookingSheetState extends ConsumerState<StaffBookingSheet> {
     });
     try {
       await ref
-          .read(casaRepositoryProvider)
+          .read(casaApiProvider)
           .createStaffBooking(
             s.token,
             barbershopId: s.shopId,
@@ -365,7 +365,7 @@ class _BlockSheetState extends ConsumerState<BlockSheet> {
     final s = ref.read(sessionProvider)!;
     try {
       await ref
-          .read(casaRepositoryProvider)
+          .read(casaApiProvider)
           .createBlock(
             s.token,
             barbershopId: s.shopId,

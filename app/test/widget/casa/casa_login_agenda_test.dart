@@ -3,6 +3,7 @@ import 'package:cortaaqui/core/time/clock.dart';
 import 'package:cortaaqui/data/mock/mock_casa_repository.dart';
 import 'package:cortaaqui/data/mock/mock_casa_state.dart';
 import 'package:cortaaqui/data/mock/mock_seed.dart';
+import 'package:cortaaqui/data/mock/mock_state.dart';
 import 'package:cortaaqui/data/models/booking.dart';
 import 'package:cortaaqui/data/models/barbershop.dart';
 import 'package:cortaaqui/data/models/staff.dart';
@@ -229,10 +230,12 @@ void main() {
     var fail = true;
     final keys = <String>[];
     final shared = MockSeed.build(sp('2026-10-07T09:00:00'));
+    final casa = MockCasaSeed.build();
     late MockCasaRepository r;
     r = MockCasaRepository(
       clock: clock,
       initialState: shared,
+      initialCasa: casa,
       faultInjector: (op) {
         if (op != 'createStaffBooking') return null;
         if (fail) {
@@ -242,7 +245,7 @@ void main() {
         return null;
       },
     );
-    final spy = _KeySpy(r, keys);
+    final spy = _KeySpy(r, keys, shared, casa);
     await pumpCasa(
       tester,
       repo: spy,
@@ -364,7 +367,10 @@ void main() {
 
 /// Repositório que anota a `Idempotency-Key` de cada marcação.
 class _KeySpy extends MockCasaRepository {
-  _KeySpy(this.inner, this.keys) : super(clock: inner.clock);
+  // Mesmo estado do `inner`: as telas que o espião não intercepta (caixa,
+  // equipe…) enxergam o mesmo token, sem 401 que derrubaria o login.
+  _KeySpy(this.inner, this.keys, MockState shared, MockCasaState casa)
+    : super(clock: inner.clock, initialState: shared, initialCasa: casa);
 
   final MockCasaRepository inner;
   final List<String> keys;

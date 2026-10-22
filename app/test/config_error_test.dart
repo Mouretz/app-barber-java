@@ -62,6 +62,7 @@ void main() {
   }
 
   testWidgets('DATA_SOURCE válido abre o app normal', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       rootFor(Flavor.casa, () => withSource(Flavor.casa, 'mock')),
     );

@@ -144,7 +144,7 @@ class TeamScreen extends ConsumerWidget {
                         final s = ref.read(sessionProvider)!;
                         try {
                           await ref
-                              .read(casaRepositoryProvider)
+                              .read(casaApiProvider)
                               .updateProfessional(
                                 s.token,
                                 barbershopId: s.shopId,
@@ -176,7 +176,7 @@ class TeamScreen extends ConsumerWidget {
 final _servicesProvider = FutureProvider.autoDispose<List<Service>>((ref) {
   final s = ref.watch(sessionProvider)!;
   return ref
-      .watch(casaRepositoryProvider)
+      .watch(casaApiProvider)
       .listServices(s.token, barbershopId: s.shopId);
 });
 
@@ -284,7 +284,7 @@ class ServicesScreen extends ConsumerWidget {
                   final s = ref.read(sessionProvider)!;
                   try {
                     await ref
-                        .read(casaRepositoryProvider)
+                        .read(casaApiProvider)
                         .updateService(
                           s.token,
                           barbershopId: s.shopId,
@@ -330,7 +330,7 @@ class _HoursScreenState extends ConsumerState<HoursScreen> {
   Future<void> _load(String proId) async {
     final s = ref.read(sessionProvider)!;
     final d = await ref
-        .read(casaRepositoryProvider)
+        .read(casaApiProvider)
         .getWorkingHours(
           s.token,
           barbershopId: s.shopId,
@@ -356,7 +356,7 @@ class _HoursScreenState extends ConsumerState<HoursScreen> {
     }
     try {
       await ref
-          .read(casaRepositoryProvider)
+          .read(casaApiProvider)
           .replaceWorkingHours(
             s.token,
             barbershopId: s.shopId,
@@ -482,7 +482,7 @@ class _CommissionScreenState extends ConsumerState<CommissionScreen> {
       final s = ref.read(sessionProvider)!;
       try {
         final c = await ref
-            .read(casaRepositoryProvider)
+            .read(casaApiProvider)
             .getCommission(s.token, barbershopId: s.shopId);
         setState(() {
           _settings = c;
@@ -534,7 +534,7 @@ class _CommissionScreenState extends ConsumerState<CommissionScreen> {
     final s = ref.read(sessionProvider)!;
     try {
       await ref
-          .read(casaRepositoryProvider)
+          .read(casaApiProvider)
           .replaceCommission(
             s.token,
             barbershopId: s.shopId,

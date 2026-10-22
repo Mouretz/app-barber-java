@@ -74,10 +74,26 @@ class StaffUser extends Equatable {
     required this.memberships,
   });
 
+  factory StaffUser.fromJson(Map<String, dynamic> j) => StaffUser(
+    id: j['id'] as String,
+    name: j['name'] as String,
+    email: j['email'] as String,
+    memberships: (j['memberships'] as List)
+        .map((e) => Membership.fromJson((e as Map).cast<String, dynamic>()))
+        .toList(),
+  );
+
   final String id;
   final String name;
   final String email;
   final List<Membership> memberships;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'email': email,
+    'memberships': memberships.map((m) => m.toJson()).toList(),
+  };
 
   Membership? membershipAt(String barbershopId) =>
       memberships.where((m) => m.barbershopId == barbershopId).firstOrNull;

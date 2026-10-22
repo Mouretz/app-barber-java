@@ -350,7 +350,7 @@ class _BlockTile extends ConsumerWidget {
                   final s = ref.read(sessionProvider)!;
                   try {
                     await ref
-                        .read(casaRepositoryProvider)
+                        .read(casaApiProvider)
                         .deleteBlock(
                           s.token,
                           barbershopId: s.shopId,

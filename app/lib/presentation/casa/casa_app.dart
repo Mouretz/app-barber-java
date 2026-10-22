@@ -12,22 +12,45 @@ import 'screens/menu_screen.dart';
 
 /// App Casa (flavor `casa`): login de gerente ou profissional e as abas
 /// Agenda, Caixa, Clientes e Menu.
-class CasaApp extends ConsumerWidget {
+class CasaApp extends ConsumerStatefulWidget {
   const CasaApp({super.key, required this.config});
 
   final AppConfig config;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CasaApp> createState() => _CasaAppState();
+}
+
+class _CasaAppState extends ConsumerState<CasaApp> {
+  final _navigator = GlobalKey<NavigatorState>();
+
+  AppConfig get config => widget.config;
+
+  @override
+  Widget build(BuildContext context) {
+    // Saiu ou 401 com uma tela aberta por cima (ex.: Equipe): fecha tudo pra
+    // a tela de entrar não ficar escondida embaixo.
+    ref.listen(sessionProvider, (prev, next) {
+      if (prev != null && next == null) {
+        _navigator.currentState?.popUntil((r) => r.isFirst);
+      }
+    });
     final session = ref.watch(sessionProvider);
+    final restored = ref.watch(casaSessionRestoredProvider);
     return MaterialApp(
+      navigatorKey: _navigator,
       title: config.flavor.appName,
       debugShowCheckedModeBanner: false,
       theme: buildCortaTheme(),
       themeMode: ThemeMode.dark,
-      home: session == null
+      home: session != null
+          ? CasaShell(key: ValueKey(session.token))
+          : restored
           ? LoginScreen(config: config)
-          : CasaShell(key: ValueKey(session.token)),
+          : const Scaffold(
+              key: ValueKey('casa-restoring'),
+              body: Center(child: CircularProgressIndicator()),
+            ),
     );
   }
 }

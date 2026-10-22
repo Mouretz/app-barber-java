@@ -133,7 +133,7 @@ class _ClientsScreenState extends ConsumerState<ClientsScreen> {
                   final s = ref.read(sessionProvider)!;
                   try {
                     await ref
-                        .read(casaRepositoryProvider)
+                        .read(casaApiProvider)
                         .createClient(
                           s.token,
                           barbershopId: s.shopId,
@@ -236,7 +236,7 @@ class ClientDetailScreen extends ConsumerWidget {
     final s = ref.read(sessionProvider)!;
     try {
       await ref
-          .read(casaRepositoryProvider)
+          .read(casaApiProvider)
           .releaseDevice(s.token, barbershopId: s.shopId, clientId: clientId);
       if (context.mounted) {
         showCasaSnack(
@@ -295,7 +295,7 @@ class ClientDetailScreen extends ConsumerWidget {
                   final s = ref.read(sessionProvider)!;
                   try {
                     await ref
-                        .read(casaRepositoryProvider)
+                        .read(casaApiProvider)
                         .updateClient(
                           s.token,
                           barbershopId: s.shopId,
