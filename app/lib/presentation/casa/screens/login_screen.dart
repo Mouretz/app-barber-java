@@ -102,8 +102,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 8),
                       for (final l in const [
                         ('Gerente (não atende)', MockCasaSeed.marinaEmail),
-                        ('Gerente e profissional', MockCasaSeed.helenaEmail),
-                        ('Profissional', MockCasaSeed.caioEmail),
+                        ('Gerente e profissional', MockCasaSeed.caioEmail),
+                        ('Profissional', MockCasaSeed.helenaEmail),
                       ])
                         Text(
                           '${l.$1}: ${l.$2}',

@@ -101,11 +101,13 @@ void main() {
       tester,
       repo: repo,
       clock: clock,
-      email: MockCasaSeed.caioEmail,
+      email: MockCasaSeed.helenaEmail,
     );
     expect(find.text('Minha agenda'), findsOneWidget);
+    expect(find.text('Agenda da casa'), findsNothing);
     expect(find.byKey(const ValueKey('pro-${MockSeed.caioId}')), findsNothing);
-    expect(find.byKey(const ValueKey('booking-$joaoBooking')), findsOneWidget);
+    // O João das 10:00 é do Caio: não aparece na agenda da Helena.
+    expect(find.byKey(const ValueKey('booking-$joaoBooking')), findsNothing);
   });
 
   testWidgets('CT-02-24 destaca só a marcação com overlapsBlock', (

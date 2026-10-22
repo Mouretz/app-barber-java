@@ -66,13 +66,13 @@ void main() {
       expect(mm.professionalId, isNull);
       expect(mm.attends, isFalse);
 
-      final h = (await repo.me(await helenaT())).membershipAt(shop)!;
-      expect(h.roles, {StaffRole.manager, StaffRole.professional});
-      expect(h.professionalId, helena);
-
       final c = (await repo.me(await caioT())).membershipAt(shop)!;
-      expect(c.roles, {StaffRole.professional});
+      expect(c.roles, {StaffRole.manager, StaffRole.professional});
       expect(c.professionalId, caio);
+
+      final h = (await repo.me(await helenaT())).membershipAt(shop)!;
+      expect(h.roles, {StaffRole.professional});
+      expect(h.professionalId, helena);
     });
 
     test('token desconhecido dá 401', () {
@@ -98,16 +98,11 @@ void main() {
     });
 
     test('CT-02-22 profissional: sem filtro só a dele; outro dá 403', () async {
-      final t = await caioT();
+      final t = await helenaT();
       final own = await repo.getAgenda(t, barbershopId: shop, date: thu);
-      expect(own.professionals.single.professional.id, caio);
+      expect(own.professionals.single.professional.id, helena);
       expect(
-        repo.getAgenda(
-          t,
-          barbershopId: shop,
-          date: thu,
-          professionalId: helena,
-        ),
+        repo.getAgenda(t, barbershopId: shop, date: thu, professionalId: caio),
         throwsA(problem(ErrorCode.forbidden, 403)),
       );
     });
@@ -264,13 +259,13 @@ void main() {
     });
 
     test('profissional não marca na agenda de outro (403)', () async {
-      final t = await caioT();
+      final t = await helenaT();
       expect(
         repo.createStaffBooking(
           t,
           barbershopId: shop,
           idempotencyKey: key(),
-          request: counter(thu.at(16 * 60), pro: helena),
+          request: counter(thu.at(16 * 60)),
         ),
         throwsA(problem(ErrorCode.forbidden, 403)),
       );
@@ -454,12 +449,12 @@ void main() {
       final b = await repo.createBlock(
         g,
         barbershopId: shop,
-        professionalId: helena,
+        professionalId: caio,
         startAt: thu.at(16 * 60),
         endAt: thu.at(17 * 60),
       );
       expect(
-        repo.deleteBlock(await caioT(), barbershopId: shop, blockId: b.id),
+        repo.deleteBlock(await helenaT(), barbershopId: shop, blockId: b.id),
         throwsA(problem(ErrorCode.forbidden, 403)),
       );
     });
@@ -468,7 +463,7 @@ void main() {
   group('equipe (CT-10) e desativação', () {
     test('/professionals só do gerente e traz inativos com active', () async {
       expect(
-        repo.listProfessionals(await caioT(), barbershopId: shop),
+        repo.listProfessionals(await helenaT(), barbershopId: shop),
         throwsA(problem(ErrorCode.forbidden, 403)),
       );
       final g = await manager();
@@ -503,56 +498,57 @@ void main() {
     test('gerente desativado como profissional continua gerente, com '
         'professionalId null', () async {
       final g = await manager();
-      final h = await helenaT();
+      final c = await caioT();
+      // Tira os futuros do Caio antes (o gerente cancela).
+      for (final id in [
+        '6f1c2a10-0000-4000-8000-0000000000d1',
+        '6f1c2a10-0000-4000-8000-0000000000d4',
+      ]) {
+        await repo.changeBookingStatus(
+          g,
+          barbershopId: shop,
+          bookingId: id,
+          idempotencyKey: key(),
+          status: BookingStatus.canceled,
+        );
+      }
       await repo.updateProfessional(
         g,
         barbershopId: shop,
-        professionalId: helena,
+        professionalId: caio,
         active: false,
       );
-      final m = (await repo.me(h)).membershipAt(shop)!;
+      final m = (await repo.me(c)).membershipAt(shop)!;
       expect(m.roles, {StaffRole.manager});
       expect(m.professionalId, isNull);
-      // Sem "minha agenda": a agenda dela é a da casa inteira (gerente).
-      final a = await repo.getAgenda(h, barbershopId: shop, date: thu);
-      expect(a.professionals.map((p) => p.professional.id), [caio]);
+      // Sem "minha agenda": a agenda dele é a da casa inteira (gerente).
+      final a = await repo.getAgenda(c, barbershopId: shop, date: thu);
+      expect(a.professionals.map((p) => p.professional.id), [helena]);
       // Reativar devolve o vínculo.
       await repo.updateProfessional(
         g,
         barbershopId: shop,
-        professionalId: helena,
+        professionalId: caio,
         active: true,
       );
-      expect((await repo.me(h)).membershipAt(shop)!.professionalId, helena);
+      expect((await repo.me(c)).membershipAt(shop)!.professionalId, caio);
     });
 
     test(
       'profissional desativado sem outro vínculo: 401 no token e no login',
       () async {
         final g = await manager();
-        final c = await caioT();
-        // Tira os futuros do Caio antes (o gerente cancela).
-        for (final id in [
-          '6f1c2a10-0000-4000-8000-0000000000d1',
-          '6f1c2a10-0000-4000-8000-0000000000d4',
-        ]) {
-          await repo.changeBookingStatus(
-            g,
-            barbershopId: shop,
-            bookingId: id,
-            idempotencyKey: key(),
-            status: BookingStatus.canceled,
-          );
-        }
+        final h = await helenaT();
+        // A Helena não tem horário futuro no seed.
         await repo.updateProfessional(
           g,
           barbershopId: shop,
-          professionalId: caio,
+          professionalId: helena,
           active: false,
         );
-        expect(repo.me(c), throwsA(problem(ErrorCode.unauthorized, 401)));
+        expect(repo.me(h), throwsA(problem(ErrorCode.unauthorized, 401)));
         expect(
-          repo.login(email: MockCasaSeed.caioEmail, password: pw),
+          repo.login(email: MockCasaSeed.helenaEmail, password: pw),
           throwsA(problem(ErrorCode.unauthorized, 401)),
         );
       },
@@ -664,21 +660,21 @@ void main() {
     });
 
     test('CT-07-07 profissional não muda expediente nem folga (403)', () async {
-      final c = await caioT();
+      final h = await helenaT();
       expect(
         repo.replaceWorkingHours(
-          c,
+          h,
           barbershopId: shop,
-          professionalId: caio,
+          professionalId: helena,
           days: const {},
         ),
         throwsA(problem(ErrorCode.forbidden, 403)),
       );
       expect(
         repo.createTimeOff(
-          c,
+          h,
           barbershopId: shop,
-          professionalId: caio,
+          professionalId: helena,
           startAt: thu.at(0),
           endAt: thu.addDays(1).at(0),
         ),
@@ -729,7 +725,7 @@ void main() {
         final h = await helenaT();
         expect(
           repo.updateClient(
-            c,
+            h,
             barbershopId: shop,
             clientId: MockSeed.joaoId,
             name: 'João A.',
@@ -737,7 +733,7 @@ void main() {
           throwsA(problem(ErrorCode.forbidden, 403)),
         );
         final ok = await repo.updateClient(
-          h,
+          c,
           barbershopId: shop,
           clientId: MockSeed.joaoId,
           name: 'João A.',
@@ -751,7 +747,7 @@ void main() {
     test('só o gerente (403 pro profissional)', () async {
       expect(
         repo.releaseDevice(
-          await caioT(),
+          await helenaT(),
           barbershopId: shop,
           clientId: MockSeed.joaoId,
         ),
@@ -823,6 +819,31 @@ void main() {
       }
     }
 
+    /// A Helena (só profissional) não tem horário em outubro no seed: o
+    /// gerente marca um Corte dela na quinta 16:00 e conclui.
+    Future<void> completeHelena(String g) async {
+      final b = await repo.createStaffBooking(
+        g,
+        barbershopId: shop,
+        idempotencyKey: key(),
+        request: StaffBookingRequest(
+          serviceId: MockSeed.corteId,
+          professionalId: helena,
+          startAt: thu.at(16 * 60),
+          source: BookingSource.counter,
+          newClientName: 'Balcão Silva',
+        ),
+      );
+      clock.set(sp('2026-10-08T16:30:00'));
+      await repo.changeBookingStatus(
+        g,
+        barbershopId: shop,
+        bookingId: b.id,
+        idempotencyKey: key(),
+        status: BookingStatus.completed,
+      );
+    }
+
     test(
       'CT-08-15 gerente: total, linhas e shopCents; casa + pros = bruto',
       () async {
@@ -848,36 +869,37 @@ void main() {
     );
 
     test('CT-08-13 profissional: só a linha dele e sem shopCents', () async {
-      await completeAll(await manager());
-      final c = await caioT();
-      final cash = await repo.getCash(c, barbershopId: shop, month: '2026-10');
-      expect(cash.byProfessional.single.professional.id, caio);
+      await completeHelena(await manager());
+      final h = await helenaT();
+      final cash = await repo.getCash(h, barbershopId: shop, month: '2026-10');
+      expect(cash.byProfessional.single.professional.id, helena);
       expect(cash.totals.toJson().containsKey('shopCents'), isFalse);
       expect(
         cash.byProfessional.single.totals.toJson().containsKey('shopCents'),
         isFalse,
       );
-      expect(cash.totals.professionalCents, 6000);
+      // Corte R$ 40 a 60%.
+      expect(cash.totals.professionalCents, 2400);
     });
 
     test(
       'CT-08-10 profissional pedindo outro: 403; o dele sem shopPercent',
       () async {
-        await completeAll(await manager());
-        final c = await caioT();
+        await completeHelena(await manager());
+        final h = await helenaT();
         expect(
           repo.getProfessionalCash(
-            c,
+            h,
             barbershopId: shop,
-            professionalId: helena,
+            professionalId: caio,
             month: '2026-10',
           ),
           throwsA(problem(ErrorCode.forbidden, 403)),
         );
         final own = await repo.getProfessionalCash(
-          c,
+          h,
           barbershopId: shop,
-          professionalId: caio,
+          professionalId: helena,
           month: '2026-10',
         );
         expect(own.totals.shopCents, isNull);
@@ -886,7 +908,7 @@ void main() {
     );
 
     test('CT-20-10 /commission só do gerente', () async {
-      final c = await caioT();
+      final c = await helenaT();
       expect(
         repo.getCommission(c, barbershopId: shop),
         throwsA(problem(ErrorCode.forbidden, 403)),

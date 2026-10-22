@@ -77,14 +77,14 @@ void main() {
         tester,
         repo: repo,
         clock: clock,
-        email: MockCasaSeed.caioEmail,
+        email: MockCasaSeed.helenaEmail,
       );
       await openTab(tester, 'Caixa');
       expect(find.text('Meus ganhos'), findsOneWidget);
       expect(find.text('Casa'), findsNothing);
       expect(find.text('R\$ 40,00'), findsNothing);
       expect(
-        find.byKey(const ValueKey('cash-row-${MockSeed.helenaId}')),
+        find.byKey(const ValueKey('cash-row-${MockSeed.caioId}')),
         findsNothing,
       );
     });
@@ -108,7 +108,7 @@ void main() {
         tester,
         repo: repo,
         clock: clock,
-        email: MockCasaSeed.caioEmail,
+        email: MockCasaSeed.helenaEmail,
       );
       await openJoao(tester);
       expect(find.text('João Almeida'), findsOneWidget);
@@ -228,7 +228,7 @@ void main() {
         tester,
         repo: repo,
         clock: clock,
-        email: MockCasaSeed.caioEmail,
+        email: MockCasaSeed.helenaEmail,
       );
       await openTab(tester, 'Menu');
       expect(find.text('Gerência'.toUpperCase()), findsNothing);
@@ -238,11 +238,25 @@ void main() {
 
     testWidgets('Equipe lista inativos; gerente que se desativa como '
         'profissional continua gerente e sem agenda própria', (tester) async {
+      // Tira os futuros do Caio antes (senão a desativação é recusada).
+      final g = await token(MockCasaSeed.marinaEmail);
+      for (final id in [
+        '6f1c2a10-0000-4000-8000-0000000000d1',
+        '6f1c2a10-0000-4000-8000-0000000000d4',
+      ]) {
+        await repo.changeBookingStatus(
+          g,
+          barbershopId: MockSeed.shopId,
+          bookingId: id,
+          idempotencyKey: 'cancel-$id',
+          status: BookingStatus.canceled,
+        );
+      }
       await pumpCasa(
         tester,
         repo: repo,
         clock: clock,
-        email: MockCasaSeed.helenaEmail,
+        email: MockCasaSeed.caioEmail,
       );
       await openTab(tester, 'Menu');
       expect(
@@ -252,13 +266,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('menu-team')));
       await tester.pumpAndSettle();
       await tester.tap(
-        find.byKey(const ValueKey('team-active-${MockSeed.helenaId}')),
+        find.byKey(const ValueKey('team-active-${MockSeed.caioId}')),
       );
       await tester.pumpAndSettle();
       expect(
         tester
             .widget<Text>(
-              find.byKey(const ValueKey('team-status-${MockSeed.helenaId}')),
+              find.byKey(const ValueKey('team-status-${MockSeed.caioId}')),
             )
             .data,
         'Desativado',
@@ -269,7 +283,7 @@ void main() {
       await openTab(tester, 'Agenda');
       expect(find.text('Agenda da casa'), findsOneWidget);
       expect(
-        find.byKey(const ValueKey('pro-${MockSeed.helenaId}')),
+        find.byKey(const ValueKey('pro-${MockSeed.caioId}')),
         findsNothing,
       );
     });

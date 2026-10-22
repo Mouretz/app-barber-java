@@ -268,8 +268,8 @@ class MockCasaState {
 /// Seed do app Casa (só mock). Mesma Barbearia Navalha, Caio e Helena do
 /// [MockSeed], mais os logins da Casa:
 /// - Marina: gerente que não atende (`professionalId` = `null`);
-/// - Helena: gerente e profissional;
-/// - Caio: só profissional.
+/// - Caio: gerente e profissional;
+/// - Helena: só profissional.
 ///
 /// As senhas valem só no mock e aparecem na tela de login do APK mock.
 abstract final class MockCasaSeed {
@@ -306,7 +306,7 @@ abstract final class MockCasaSeed {
         memberships: [
           MockMembership(
             barbershopId: MockSeed.shopId,
-            roles: {StaffRole.manager, StaffRole.professional},
+            roles: {StaffRole.professional},
             professionalId: MockSeed.helenaId,
           ),
         ],
@@ -319,7 +319,7 @@ abstract final class MockCasaSeed {
         memberships: [
           MockMembership(
             barbershopId: MockSeed.shopId,
-            roles: {StaffRole.professional},
+            roles: {StaffRole.manager, StaffRole.professional},
             professionalId: MockSeed.caioId,
           ),
         ],
