@@ -326,14 +326,14 @@ abstract final class MockCasaSeed {
       ),
     ],
     professionals: {
-      MockSeed.shopId: const [
-        Professional(
+      MockSeed.shopId: [
+        const Professional(
           id: MockSeed.caioId,
           name: 'Caio',
           active: true,
           email: caioEmail,
         ),
-        Professional(
+        const Professional(
           id: MockSeed.helenaId,
           name: 'Helena',
           active: true,
