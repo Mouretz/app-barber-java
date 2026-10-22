@@ -566,6 +566,18 @@ class RegrasPoPlanoIT extends DomainTest {
         assertThat(login("gp@a.test", World.PASSWORD).status()).isEqualTo(200);
     }
 
+    @Test
+    @DisplayName("N2: PX desativado na B leva 403 FORBIDDEN no caixa da B (/cash e /cash/professionals), com o corpo padrão; o caixa da A segue 200")
+    void n2CashForbiddenWhenDeactivatedInShop() {
+        assertThat(get("/barbershops/" + w.shopB + "/cash?month=2026-10", w.tPX).status()).isEqualTo(200);
+        assertThat(setActive(w.tGB, w.shopB, w.px, false).status()).isEqualTo(200);
+        assertForbiddenInB(get("/barbershops/" + w.shopB + "/cash?month=2026-10", w.tPX));
+        assertForbiddenInB(get("/barbershops/" + w.shopB + "/cash/professionals/" + w.px + "?month=2026-10", w.tPX));
+        // 403 vem antes do 422 do mês.
+        assertForbiddenInB(get("/barbershops/" + w.shopB + "/cash?month=errado", w.tPX));
+        assertThat(get("/barbershops/" + w.shopA + "/cash?month=2026-10", w.tPX).status()).isEqualTo(200);
+    }
+
     // ------------------------------------------------------------------ N3: gerente desativado como profissional
 
     private static JsonNode membershipOf(JsonNode user, UUID shop) {

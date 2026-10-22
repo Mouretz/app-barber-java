@@ -922,6 +922,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MonthlyCash' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /barbershops/{barbershopId}/cash/professionals/{professionalId}:
@@ -1052,6 +1053,10 @@ components:
               message: { type: string }
     ErrorCode:
       type: string
+      description: |
+        `CONCURRENT_UPDATE` (409): outra operação ao mesmo tempo travou esta no banco e nada foi gravado.
+        O app mostra "Não deu pra concluir agora. Tente de novo.". Diferente de `SLOT_TAKEN`
+        (horário ocupado de verdade).
       enum:
         - UNAUTHORIZED
         - FORBIDDEN
