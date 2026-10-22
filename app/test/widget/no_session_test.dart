@@ -1,0 +1,193 @@
+import 'package:cortaaqui/core/errors/api_problem.dart';
+import 'package:cortaaqui/core/storage/device_store.dart';
+import 'package:cortaaqui/core/time/clock.dart';
+import 'package:cortaaqui/data/mock/mock_cliente_repository.dart';
+import 'package:cortaaqui/data/mock/mock_seed.dart';
+import 'package:cortaaqui/data/models/booking.dart';
+import 'package:cortaaqui/data/repositories/cliente_repository.dart';
+import 'package:cortaaqui/presentation/cliente/widgets/common.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'harness.dart';
+
+/// Repositório espião: conta as chamadas de `listMyBookings`.
+class SpyRepo extends MockClienteRepository {
+  SpyRepo(Clock clock) : super(clock: clock, initialState: seededState());
+
+  final List<String> listCalls = [];
+
+  @override
+  Future<List<Booking>> listMyBookings({
+    required String clientCode,
+    BookingScope scope = BookingScope.upcoming,
+    int limit = 20,
+  }) {
+    listCalls.add(clientCode);
+    return super.listMyBookings(
+      clientCode: clientCode,
+      scope: scope,
+      limit: limit,
+    );
+  }
+}
+
+void expectNoError() {
+  expect(find.byType(ErrorBox), findsNothing);
+  expect(find.text('Tentar de novo'), findsNothing);
+}
+
+void main() {
+  testWidgets('aparelho sem código: Início não chama listMyBookings e mostra '
+      '"Você ainda não tem horários"', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = SpyRepo(clock);
+    await pumpCliente(tester, repo: repo, clock: clock);
+
+    expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    expect(find.text('Nenhum horário marcado'), findsNothing);
+    expectNoError();
+    expect(repo.listCalls, isEmpty);
+  });
+
+  testWidgets('aparelho sem código: Horários não chama listMyBookings, nem nos '
+      'próximos nem no histórico', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = SpyRepo(clock);
+    await pumpCliente(tester, repo: repo, clock: clock, location: '/horarios');
+
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    expectNoError();
+
+    await tester.tap(find.byKey(const ValueKey('scope-past')));
+    await tester.pumpAndSettle();
+    expect(find.text('Nada no histórico ainda'), findsOneWidget);
+    expectNoError();
+    expect(repo.listCalls, isEmpty);
+  });
+
+  testWidgets('código liberado (401) em Horários: limpa a sessão, para de '
+      'chamar e não mostra tela de erro', (tester) async {
+    final clock = FixedClock(kNow);
+    final repo = SpyRepo(clock);
+    await repo.releaseClientDevice(
+      barbershopId: MockSeed.shopId,
+      clientId: MockSeed.joaoId,
+    );
+    await pumpCliente(
+      tester,
+      repo: repo,
+      clock: clock,
+      clientCode: joaoCode,
+      location: '/horarios',
+    );
+
+    expect(find.text(kDisconnectedText), findsOneWidget);
+    expectNoError();
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(DeviceStore.kClientCode), isNull);
+    expect(repo.listCalls, everyElement(joaoCode));
+    final callsAfter401 = repo.listCalls.length;
+    expect(callsAfter401, greaterThan(0));
+
+    await ackDisconnected(tester);
+    await skipIntro(tester);
+
+    // Sem sessão, Início, Horários e histórico não chamam mais.
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    await tester.tap(find.text('Horários'));
+    await tester.pumpAndSettle();
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scope-past')));
+    await tester.pumpAndSettle();
+    expect(find.text('Nada no histórico ainda'), findsOneWidget);
+    expectNoError();
+    expect(repo.listCalls, hasLength(callsAfter401));
+  });
+
+  testWidgets('aparelho liberado pelo gerente: aviso uma vez só, depois a '
+      'introdução, depois o Início de cliente novo com o telefone livre', (
+    tester,
+  ) async {
+    final clock = FixedClock(kNow);
+    final repo = SpyRepo(clock);
+    await repo.releaseClientDevice(
+      barbershopId: MockSeed.shopId,
+      clientId: MockSeed.joaoId,
+    );
+    // Abre no Início, que pede os próximos com o código salvo do João.
+    await pumpCliente(
+      tester,
+      repo: repo,
+      clock: clock,
+      clientCode: joaoCode,
+      extraPrefs: {DeviceStore.kSeedSessionApplied: true},
+    );
+
+    // 1) O aviso, antes de qualquer outra coisa.
+    final notice = find.text(kDisconnectedText);
+    expect(notice, findsOneWidget);
+    expect(find.byKey(const ValueKey('disconnected-notice')), findsOneWidget);
+    expect(find.text('Pular'), findsNothing);
+    expect(
+      clientMessageFor(const ApiProblem(ErrorCode.unauthorized, status: 401)),
+      kDisconnectedText,
+    );
+    expectNoError();
+
+    // Estado de cliente novo: nada salvo, intro por ver, marca do seed fica.
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(DeviceStore.kClientCode), isNull);
+    expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
+    expect(prefs.getString(DeviceStore.kClientName), isNull);
+    expect(prefs.getBool(DeviceStore.kIntroSeen), isNull);
+    expect(prefs.getBool(DeviceStore.kSeedSessionApplied), isTrue);
+
+    // 2) A introdução.
+    await ackDisconnected(tester);
+    expect(notice, findsNothing);
+    expect(find.text('Pular'), findsOneWidget);
+    expect(find.byKey(const ValueKey('intro-dot-0')), findsOneWidget);
+
+    // 3) O Início de cliente novo.
+    await skipIntro(tester);
+    expect(prefs.getBool(DeviceStore.kIntroSeen), isTrue);
+    expect(find.byKey(const ValueKey('home-empty-next')), findsOneWidget);
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    expect(notice, findsNothing);
+    expectNoError();
+
+    // O aviso não volta em outra tela.
+    await tester.tap(find.text('Horários'));
+    await tester.pumpAndSettle();
+    expect(find.text('Você ainda não tem horários'), findsOneWidget);
+    expect(notice, findsNothing);
+    expectNoError();
+
+    // Campo de telefone livre e vazio no Agendar.
+    await tester.tap(find.text('Início'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Agendar'));
+    await tester.pumpAndSettle();
+    for (final key in [
+      'service-${MockSeed.corteId}',
+      'pro-${MockSeed.caioId}',
+      'day-2026-10-08',
+      'slot-09:00',
+      'booking-continue',
+    ]) {
+      final f = find.byKey(ValueKey(key));
+      await tester.ensureVisible(f);
+      await tester.tap(f);
+      await tester.pumpAndSettle();
+    }
+    final phone = tester.widget<TextField>(
+      find.byKey(const ValueKey('confirm-phone')),
+    );
+    expect(phone.readOnly, isFalse);
+    expect(phone.controller!.text, isEmpty);
+    expect(notice, findsNothing);
+  });
+}
