@@ -21,15 +21,7 @@ void main() {
     expect(codes, contains('SLOT_IN_PAST'));
     expect(codes, contains('STATUS_CHANGED'));
     expect(codes, isNot(contains('INVALID_STATUS_TRANSITION')));
-    // CONCURRENT_UPDATE já foi decidido, mas ainda não está no contrato. Quando
-    // entrar, sai daqui.
-    const pendingInContract = {'CONCURRENT_UPDATE'};
-    expect(
-      ErrorCode.values
-          .map((c) => c.wire)
-          .where((w) => !(pendingInContract.contains(w) && !codes.contains(w))),
-      codes,
-    );
+    expect(ErrorCode.values.map((c) => c.wire), codes);
   });
 
   test('o telefone normalizado segue o padrão de telefone do contrato', () {
