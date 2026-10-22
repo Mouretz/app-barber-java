@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:cortaaqui/app.dart';
 import 'package:cortaaqui/core/config/app_config.dart';
 import 'package:cortaaqui/data/mock/mock_casa_state.dart';
 import 'package:cortaaqui/presentation/casa/screens/login_screen.dart';
@@ -20,6 +23,7 @@ void main() {
     );
     await tester.pumpWidget(
       ProviderScope(
+        overrides: [appConfigProvider.overrideWithValue(config)],
         child: MaterialApp(
           theme: buildCortaTheme(),
           home: LoginScreen(config: config),
@@ -59,5 +63,13 @@ void main() {
     expect(anyTextContains(MockCasaSeed.mockPassword), isFalse);
     expect(anyTextContains('navalha.mock'), isFalse);
     expect(anyTextContains('Modo mock'), isFalse);
+  });
+
+  test('login_screen.dart não importa nada do mock', () {
+    final src = File(
+      'lib/presentation/casa/screens/login_screen.dart',
+    ).readAsStringSync();
+    expect(src.contains('data/mock/'), isFalse);
+    expect(src.contains('MockCasaSeed'), isFalse);
   });
 }

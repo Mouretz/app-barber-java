@@ -815,6 +815,49 @@ void main() {
       expect(b.professionalPercent, 60);
     });
 
+    test('concluído do seed grava 3600 pra Helena e 2400 pra casa', () async {
+      // Relógio em 07/10: hoje − 7 = 30/09, cai no mês anterior.
+      final t = await manager();
+      final cash = await repo.getProfessionalCash(
+        t,
+        barbershopId: shop,
+        professionalId: MockSeed.helenaId,
+        month: '2026-09',
+      );
+      final b = cash.bookings.singleWhere((x) => x.id == seedDone);
+      expect(b.priceCents, 6000);
+      expect(cash.totals.grossCents, 6000);
+      expect(cash.totals.professionalCents, 3600);
+      expect(cash.totals.shopCents, 2400);
+    });
+
+    test('dias 1 a 7: hoje − 7 cai no caixa do mês anterior', () async {
+      final t = await manager();
+      final sep = await repo.getCash(t, barbershopId: shop, month: '2026-09');
+      final oct = await repo.getCash(t, barbershopId: shop, month: '2026-10');
+      expect(sep.totals.completedCount, 1);
+      expect(sep.totals.professionalCents, 3600);
+      expect(sep.totals.shopCents, 2400);
+      expect(oct.totals.completedCount, 0);
+      expect(oct.totals.grossCents, 0);
+    });
+
+    test('dia 8 em diante: hoje − 7 fica no mês corrente', () async {
+      final c = FixedClock(sp('2026-10-15T09:00:00'));
+      final r = MockCasaRepository(
+        clock: c,
+        initialState: MockSeed.build(c.now()),
+      );
+      final t = (await r.login(
+        email: MockCasaSeed.marinaEmail,
+        password: MockCasaSeed.mockPassword,
+      )).accessToken;
+      final oct = await r.getCash(t, barbershopId: shop, month: '2026-10');
+      expect(oct.totals.completedCount, 1);
+      expect(oct.totals.professionalCents, 3600);
+      expect(oct.totals.shopCents, 2400);
+    });
+
     test('o mock não preenche % na hora: concluído sem % fica sem %', () async {
       // Estado sem a % no concluído: o repositório devolve como está.
       final s = MockSeed.build(clock.now());

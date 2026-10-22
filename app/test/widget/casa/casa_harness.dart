@@ -1,5 +1,6 @@
 import 'package:cortaaqui/app.dart';
 import 'package:cortaaqui/core/config/app_config.dart';
+import 'package:cortaaqui/core/storage/casa_token_store.dart';
 import 'package:cortaaqui/core/time/clock.dart';
 import 'package:cortaaqui/core/time/sao_paulo.dart';
 import 'package:cortaaqui/data/mock/mock_casa_repository.dart';
@@ -18,6 +19,9 @@ const casaConfig = AppConfig(
   dataSource: DataSource.mock,
   apiBaseUrl: 'http://localhost',
 );
+
+/// Token da Casa nos testes (no aparelho é o armazenamento seguro).
+final casaTokens = MemoryCasaTokenStore();
 
 DateTime sp(String local) => DateTime.parse('$local-03:00').toUtc();
 
@@ -40,6 +44,7 @@ Future<void> pumpCasa(
   String? email,
 }) async {
   SharedPreferences.setMockInitialValues({});
+  casaTokens.token = null;
   tester.view.physicalSize = const Size(1600, 6000);
   tester.view.devicePixelRatio = 2.0;
   addTearDown(tester.view.reset);
@@ -49,6 +54,7 @@ Future<void> pumpCasa(
         appConfigProvider.overrideWithValue(casaConfig),
         clockProvider.overrideWithValue(clock),
         casaRepositoryProvider.overrideWithValue(repo),
+        casaTokenStoreProvider.overrideWithValue(casaTokens),
       ],
       child: const CasaApp(config: casaConfig),
     ),

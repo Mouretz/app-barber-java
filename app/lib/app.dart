@@ -1,3 +1,4 @@
+import 'core/config/build_mode.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -103,7 +104,7 @@ class ConfigErrorApp extends StatelessWidget {
 /// No modo mock, o aparelho que abre o app já vem preso ao João do seed
 /// (plano da QA, seção 2, e checklist do APK). No modo api, nada.
 List<Override> deviceSeedOverrides(AppConfig config) => [
-  if (config.isMock && config.flavor == Flavor.cliente)
+  if (kBuildIsMock && config.isMock && config.flavor == Flavor.cliente)
     seedSessionProvider.overrideWithValue(MockSeed.joaoSession),
 ];
 

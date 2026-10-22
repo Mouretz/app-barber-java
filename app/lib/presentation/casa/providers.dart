@@ -5,11 +5,14 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/config/build_mode.dart';
 import '../../core/errors/api_problem.dart';
+import '../../core/storage/casa_token_store.dart';
 
 import '../../app.dart';
 import '../../core/time/sao_paulo.dart';
 import '../../data/mock/mock_casa_repository.dart';
+import '../../data/mock/mock_login_hint.dart';
 import '../../data/mock/mock_persistence.dart';
 import '../../data/models/barbershop.dart';
 import '../../data/models/staff.dart';
@@ -23,7 +26,7 @@ export '../cliente/providers.dart' show clockProvider;
 /// Repositório do app Casa. `DATA_SOURCE=mock` roda sem servidor.
 final casaRepositoryProvider = Provider<CasaRepository>((ref) {
   final config = ref.watch(appConfigProvider);
-  if (config.isMock) {
+  if (kBuildIsMock && config.isMock) {
     return MockCasaRepository(
       clock: ref.watch(clockProvider),
       persistence: PrefsMockPersistence(key: PrefsMockPersistence.kCasaKey),
@@ -32,6 +35,24 @@ final casaRepositoryProvider = Provider<CasaRepository>((ref) {
   }
   return ApiCasaRepository(Dio(BaseOptions(baseUrl: config.apiBaseUrl)));
 });
+
+/// Dica dos logins de teste: só no mock (no build api o ramo é cortado).
+final casaLoginHintProvider = Provider<MockLoginHint?>((ref) {
+  if (kBuildIsMock && ref.watch(appConfigProvider).isMock) {
+    return MockLoginHint.casa;
+  }
+  return null;
+});
+
+/// Onde fica o token da Casa (armazenamento seguro). Testes usam memória.
+final casaTokenStoreProvider = Provider<CasaTokenStore>(
+  (ref) => SecureCasaTokenStore(),
+);
+
+/// Aviso de uma vez só na tela de entrar (ex.: acesso desativado).
+final casaNoticeProvider = StateProvider<String?>((ref) => null);
+
+const kAccessRevokedMessage = 'Seu acesso a esta barbearia foi desativado.';
 
 /// O que as telas usam: o mesmo repositório, mas qualquer 401 fora do login
 /// esquece o login guardado e volta pra tela de entrar (resposta 3 do PO).
@@ -66,18 +87,16 @@ class CasaSession {
   String? get ownProfessionalId =>
       membership.attends ? membership.professionalId : null;
 
-  Map<String, dynamic> toJson() => {
-    'token': token,
-    'user': user.toJson(),
-    'shopId': shopId,
-  };
+  /// Só o que não é segredo (vai pro SharedPreferences). O token fica no
+  /// [CasaTokenStore].
+  Map<String, dynamic> toJson() => {'user': user.toJson(), 'shopId': shopId};
 
   /// `null` se o que está guardado não fecha (vínculo sumiu, formato velho).
-  static CasaSession? fromJson(Map<String, dynamic> j) {
+  static CasaSession? fromJson(Map<String, dynamic> j, String token) {
     final user = StaffUser.fromJson((j['user'] as Map).cast<String, dynamic>());
     final m = user.membershipAt(j['shopId'] as String);
     if (m == null) return null;
-    return CasaSession(token: j['token'] as String, user: user, membership: m);
+    return CasaSession(token: token, user: user, membership: m);
   }
 }
 
@@ -94,21 +113,40 @@ class SessionNotifier extends StateNotifier<CasaSession?> {
 
   CasaRepository get _api => _ref.read(casaApiProvider);
 
+  CasaTokenStore get _tokens => _ref.read(casaTokenStoreProvider);
+
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(kSession);
       if (raw != null) {
+        Map<String, dynamic>? j;
+        try {
+          j = (jsonDecode(raw) as Map).cast<String, dynamic>();
+        } catch (_) {
+          j = null;
+        }
+        // Formato velho: o token estava em texto puro no SharedPreferences.
+        // Passa pro armazenamento seguro e regrava sem ele.
+        final legacy = j?.remove('token');
+        if (legacy is String) {
+          if (await _tokens.read() == null) await _tokens.write(legacy);
+          await prefs.setString(kSession, jsonEncode(j));
+        } else if (legacy != null) {
+          await prefs.setString(kSession, jsonEncode(j));
+        }
+        final token = await _tokens.read();
         CasaSession? saved;
         try {
-          saved = CasaSession.fromJson(
-            (jsonDecode(raw) as Map).cast<String, dynamic>(),
-          );
+          saved = j == null || token == null
+              ? null
+              : CasaSession.fromJson(j, token);
         } catch (_) {
           saved = null;
         }
         if (saved == null) {
           await prefs.remove(kSession);
+          await _tokens.delete();
         } else if (state == null) {
           state = saved;
         }
@@ -126,7 +164,9 @@ class SessionNotifier extends StateNotifier<CasaSession?> {
       final prefs = await SharedPreferences.getInstance();
       if (s == null) {
         await prefs.remove(kSession);
+        await _tokens.delete();
       } else {
+        await _tokens.write(s.token);
         await prefs.setString(kSession, jsonEncode(s.toJson()));
       }
     } catch (_) {}
@@ -166,7 +206,16 @@ class SessionNotifier extends StateNotifier<CasaSession?> {
             : CasaSession(token: cur.token, user: me, membership: m),
       );
     } on ApiProblem catch (e) {
-      if (e.status == 401 || e.status == 403 || e.status == 404) _set(null);
+      // Só no /auth/me: 403/404 é vínculo desativado/removido (decisão do
+      // PO). Avisa uma vez e volta pro login. 403 em outra rota não sai.
+      if (e.status == 403 || e.status == 404) {
+        if (mounted) {
+          _ref.read(casaNoticeProvider.notifier).state = kAccessRevokedMessage;
+        }
+        _set(null);
+      } else if (e.status == 401) {
+        _set(null);
+      }
     } catch (_) {}
   }
 

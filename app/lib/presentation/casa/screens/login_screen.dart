@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_problem.dart';
-import '../../../data/mock/mock_casa_state.dart';
 import '../../../theme/theme.dart';
 import '../casa_messages.dart';
 import '../providers.dart';
@@ -22,6 +21,34 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _password = TextEditingController();
   bool _busy = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual<String?>(casaNoticeProvider, (_, next) {
+      if (next != null) _showNotice(next);
+    }, fireImmediately: true);
+  }
+
+  void _showNotice(String msg) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      ref.read(casaNoticeProvider.notifier).state = null;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          key: const ValueKey('casa-notice'),
+          content: Text(msg),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Entendi'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
 
   @override
   void dispose() {
@@ -55,6 +82,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final t = CortaTokens.of(context);
     final text = Theme.of(context).textTheme;
+    final hint = ref.watch(casaLoginHintProvider);
     return Scaffold(
       body: SafeArea(
         child: ListView(
@@ -87,7 +115,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               onPressed: _busy ? null : _submit,
               child: const Text('Entrar'),
             ),
-            if (widget.config.isMock) ...[
+            if (hint != null) ...[
               const SizedBox(height: 28),
               Card(
                 child: Padding(
@@ -100,17 +128,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         style: text.titleSmall,
                       ),
                       const SizedBox(height: 8),
-                      for (final l in const [
-                        ('Gerente (não atende)', MockCasaSeed.marinaEmail),
-                        ('Gerente e profissional', MockCasaSeed.caioEmail),
-                        ('Profissional', MockCasaSeed.helenaEmail),
-                      ])
+                      for (final l in hint.logins)
                         Text(
                           '${l.$1}: ${l.$2}',
                           style: text.bodySmall?.copyWith(color: t.textMuted),
                         ),
                       Text(
-                        'Senha: ${MockCasaSeed.mockPassword}',
+                        'Senha: ${hint.password}',
                         style: text.bodySmall?.copyWith(color: t.textMuted),
                       ),
                     ],
