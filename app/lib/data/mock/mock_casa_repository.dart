@@ -61,7 +61,6 @@ class MockCasaRepository implements CasaRepository {
   }) : _persistence = persistence ?? MemoryMockPersistence(),
        _state = initialState,
        _casa = initialCasa {
-    if (_state != null) _fixSeedPercents(_state!);
     if (_state != null && _casa == null) _casa = MockCasaSeed.build();
   }
 
@@ -87,13 +86,6 @@ class MockCasaRepository implements CasaRepository {
     return _casa!;
   }
 
-  static void _fixSeedPercents(MockState s) {
-    final fixed = MockCasaSeed.withSeedPercents(s.bookings);
-    s.bookings
-      ..clear()
-      ..addAll(fixed);
-  }
-
   Future<void> _ensure() {
     if (_state != null && _casa != null) return Future.value();
     return _loading ??= () async {
@@ -113,7 +105,6 @@ class MockCasaRepository implements CasaRepository {
       }
       if (shared == null || casa == null) {
         shared = MockSeed.build(clock.now());
-        _fixSeedPercents(shared);
         casa = MockCasaSeed.build();
       }
       _state = shared;

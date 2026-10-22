@@ -8,6 +8,7 @@ import 'package:cortaaqui/data/mock/mock_seed.dart';
 import 'package:cortaaqui/data/mock/mock_state.dart';
 import 'package:cortaaqui/data/models/booking.dart';
 import 'package:cortaaqui/data/models/staff.dart';
+import 'package:cortaaqui/data/repositories/cliente_repository.dart';
 import 'package:cortaaqui/domain/scheduling.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -803,6 +804,45 @@ void main() {
   });
 
   group('caixa (CT-08) e % (CT-20)', () {
+    const seedDone = '6f1c2a10-0000-4000-8000-0000000000d2';
+
+    test('concluído do seed já vem com 60/40 gravado no próprio seed', () {
+      final b = MockSeed.build(
+        clock.now(),
+      ).bookings.firstWhere((x) => x.id == seedDone);
+      expect(b.status, BookingStatus.completed);
+      expect(b.shopPercent, 40);
+      expect(b.professionalPercent, 60);
+    });
+
+    test('o mock não preenche % na hora: concluído sem % fica sem %', () async {
+      // Estado sem a % no concluído: o repositório devolve como está.
+      final s = MockSeed.build(clock.now());
+      final i = s.bookings.indexWhere((x) => x.id == seedDone);
+      final b = s.bookings[i];
+      s.bookings[i] = Booking.fromJson({
+        ...b.toJson(),
+        'shopPercent': null,
+        'professionalPercent': null,
+      });
+      final r = MockCasaRepository(clock: clock, initialState: s);
+      final st = await r.state;
+      final got = st.bookings.firstWhere((x) => x.id == seedDone);
+      expect(got.shopPercent, isNull);
+      expect(got.professionalPercent, isNull);
+    });
+
+    test('o app Cliente não vê a % do concluído do seed', () async {
+      final cliente = MockClienteRepository(clock: clock, initialState: shared);
+      final mine = await cliente.listMyBookings(
+        clientCode: MockSeed.joaoDeviceCode,
+        scope: BookingScope.past,
+      );
+      final done = mine.firstWhere((x) => x.id == seedDone);
+      expect(done.shopPercent, isNull);
+      expect(done.professionalPercent, isNull);
+    });
+
     Future<void> completeAll(String t) async {
       clock.set(sp('2026-10-08T13:00:00'));
       for (final id in [

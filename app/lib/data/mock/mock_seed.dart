@@ -128,6 +128,8 @@ abstract final class MockSeed {
       required BookingSource source,
       BookingStatus status = BookingStatus.scheduled,
       CanceledBy? canceledBy,
+      int? shopPercent,
+      int? professionalPercent,
     }) {
       return Booking(
         id: id,
@@ -142,6 +144,8 @@ abstract final class MockSeed {
         client: BookingClientRef(id: clientId, name: clientName),
         priceCents: svc.priceCents,
         canceledBy: canceledBy,
+        shopPercent: shopPercent,
+        professionalPercent: professionalPercent,
         createdAt: start.subtract(const Duration(days: 2)),
       );
     }
@@ -186,6 +190,9 @@ abstract final class MockSeed {
           clientName: 'João Almeida',
           source: BookingSource.clientApp,
           status: BookingStatus.completed,
+          // % gravada na conclusão (padrão 60/40), como o servidor grava.
+          shopPercent: 40,
+          professionalPercent: 60,
         ),
         booking(
           id: '6f1c2a10-0000-4000-8000-0000000000d3',

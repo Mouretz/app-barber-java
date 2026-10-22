@@ -1,7 +1,6 @@
 import '../../core/time/sao_paulo.dart';
 import '../../domain/scheduling.dart';
 import '../models/barbershop.dart';
-import '../models/booking.dart';
 import '../models/staff.dart';
 import 'mock_seed.dart';
 
@@ -357,13 +356,4 @@ abstract final class MockCasaSeed {
       ),
     },
   );
-
-  /// Concluído do seed sem % gravada (o app Cliente não vê a %): grava o padrão
-  /// 60/40, como o servidor teria gravado na conclusão.
-  static List<Booking> withSeedPercents(List<Booking> bookings) => [
-    for (final b in bookings)
-      b.status == BookingStatus.completed && b.professionalPercent == null
-          ? b.copyWith(shopPercent: 40, professionalPercent: 60)
-          : b,
-  ];
 }
