@@ -3,6 +3,10 @@ import 'package:cortaaqui/core/config/app_config.dart';
 import 'package:cortaaqui/core/storage/device_store.dart';
 import 'package:cortaaqui/core/time/clock.dart';
 import 'package:cortaaqui/data/mock/mock_cliente_repository.dart';
+import 'package:cortaaqui/data/mock/mock_casa_repository.dart';
+import 'package:cortaaqui/data/mock/mock_casa_state.dart';
+import 'package:cortaaqui/presentation/casa/providers.dart'
+    show casaRepositoryProvider;
 import 'package:cortaaqui/presentation/cliente/providers.dart';
 import 'package:cortaaqui/theme/theme.dart';
 import 'package:flutter/material.dart';
@@ -22,10 +26,33 @@ void main() {
       );
 
       if (flavor == Flavor.casa) {
-        // Casa ainda usa a tela provisória.
-        await tester.pumpWidget(CortaAquiApp(config: config));
-        expect(find.text(flavor.appName), findsOneWidget);
-        expect(find.text('Modo mock: roda sem servidor.'), findsOneWidget);
+        // Casa: login do gerente do seed e a Agenda.
+        SharedPreferences.setMockInitialValues({});
+        final clock = FixedClock(DateTime.utc(2026, 10, 7, 12));
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              appConfigProvider.overrideWithValue(config),
+              clockProvider.overrideWithValue(clock),
+              casaRepositoryProvider.overrideWithValue(
+                MockCasaRepository(clock: clock),
+              ),
+            ],
+            child: CortaAquiApp(config: config),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('login-email')),
+          MockCasaSeed.marinaEmail,
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('login-password')),
+          MockCasaSeed.mockPassword,
+        );
+        await tester.tap(find.byKey(const ValueKey('login-submit')));
+        await tester.pumpAndSettle();
+        expect(find.text('Agenda da casa'), findsOneWidget);
       } else {
         // Cliente: telas de verdade, com o repositório mock e a intro já vista.
         SharedPreferences.setMockInitialValues({DeviceStore.kIntroSeen: true});

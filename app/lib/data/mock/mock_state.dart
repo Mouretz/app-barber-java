@@ -31,14 +31,17 @@ class MockClient {
 
   factory MockClient.fromJson(Map<String, dynamic> j) => MockClient(
     id: j['id'] as String,
-    phone: j['phone'] as String,
+    phone: j['phone'] as String?,
     name: j['name'] as String,
     createdAt: parseInstant(j['createdAt'] as String),
     fichaNames: (j['fichaNames'] as Map).cast<String, String>(),
   );
 
   final String id;
-  final String phone;
+
+  /// Normalizado (`+55...`). `null` na ficha de balcão sem telefone (só a
+  /// Casa cria assim; não prende aparelho nem conta no limite de 2).
+  final String? phone;
   final String name;
   final DateTime createdAt;
 

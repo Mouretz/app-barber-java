@@ -1,11 +1,12 @@
+import 'core/config/build_mode.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/config/app_config.dart';
 import 'core/storage/device_store.dart';
 import 'data/mock/mock_seed.dart';
+import 'presentation/casa/casa_app.dart';
 import 'presentation/cliente/cliente_app.dart';
-import 'presentation/placeholder_home.dart';
 import 'theme/theme.dart';
 
 /// Config do build atual. Os pontos de entrada sobrescrevem este provider.
@@ -15,8 +16,7 @@ final appConfigProvider = Provider<AppConfig>(
 
 /// Ponto de partida dos dois apps. Lê a configuração do build e, se ela estiver
 /// errada (ex.: `DATA_SOURCE` desconhecido), mostra uma tela de erro em vez de
-/// abrir em branco ou cair no mock em silêncio. O Cliente já tem as telas e o
-/// go_router dele; a Casa ainda usa a tela provisória.
+/// abrir em branco ou cair no mock em silêncio.
 void bootCortaAqui(Flavor flavor) {
   runApp(rootFor(flavor, () => AppConfig.fromEnvironment(flavor)));
 }
@@ -104,7 +104,7 @@ class ConfigErrorApp extends StatelessWidget {
 /// No modo mock, o aparelho que abre o app já vem preso ao João do seed
 /// (plano da QA, seção 2, e checklist do APK). No modo api, nada.
 List<Override> deviceSeedOverrides(AppConfig config) => [
-  if (config.isMock && config.flavor == Flavor.cliente)
+  if (kBuildIsMock && config.isMock && config.flavor == Flavor.cliente)
     seedSessionProvider.overrideWithValue(MockSeed.joaoSession),
 ];
 
@@ -116,12 +116,6 @@ class CortaAquiApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (config.flavor == Flavor.cliente) return ClienteApp(config: config);
-    return MaterialApp(
-      title: config.flavor.appName,
-      debugShowCheckedModeBanner: false,
-      theme: buildCortaTheme(),
-      themeMode: ThemeMode.dark,
-      home: PlaceholderHome(config: config),
-    );
+    return CasaApp(config: config);
   }
 }

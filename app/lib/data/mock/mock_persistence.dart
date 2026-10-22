@@ -21,12 +21,19 @@ class MemoryMockPersistence implements MockPersistence {
 }
 
 class PrefsMockPersistence implements MockPersistence {
-  static const _key = 'cortaaqui.mock.cliente.state';
+  PrefsMockPersistence({this.key = kClienteKey});
+
+  static const kClienteKey = 'cortaaqui.mock.cliente.state';
+
+  /// O app Casa é outro APK: guarda o "servidor" dele em outra chave.
+  static const kCasaKey = 'cortaaqui.mock.casa.state';
+
+  final String key;
 
   @override
   Future<Map<String, dynamic>?> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
+    final raw = prefs.getString(key);
     if (raw == null) return null;
     try {
       return jsonDecode(raw) as Map<String, dynamic>;
@@ -38,6 +45,6 @@ class PrefsMockPersistence implements MockPersistence {
   @override
   Future<void> save(Map<String, dynamic> json) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, jsonEncode(json));
+    await prefs.setString(key, jsonEncode(json));
   }
 }

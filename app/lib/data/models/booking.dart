@@ -104,6 +104,7 @@ class Booking extends Equatable {
     this.canceledBy,
     this.note,
     required this.createdAt,
+    this.overlapsBlock,
   });
 
   factory Booking.fromJson(Map<String, dynamic> j) => Booking(
@@ -126,6 +127,7 @@ class Booking extends Equatable {
     canceledBy: CanceledBy.fromWire(j['canceledBy'] as String?),
     note: j['note'] as String?,
     createdAt: parseInstant(j['createdAt'] as String),
+    overlapsBlock: j['overlapsBlock'] as bool?,
   );
 
   final String id;
@@ -146,6 +148,10 @@ class Booking extends Equatable {
   final String? note;
   final DateTime createdAt;
 
+  /// Só na Casa: marcação ativa que bate com um bloqueio do mesmo
+  /// profissional. Calculado na leitura (a agenda destaca).
+  final bool? overlapsBlock;
+
   bool get canceledByShop =>
       status == BookingStatus.canceled && canceledBy == CanceledBy.staff;
 
@@ -155,6 +161,9 @@ class Booking extends Equatable {
     CanceledBy? canceledBy,
     BookingClientRef? client,
     String? note,
+    int? shopPercent,
+    int? professionalPercent,
+    bool? overlapsBlock,
   }) {
     return Booking(
       id: id,
@@ -168,12 +177,13 @@ class Booking extends Equatable {
       professional: professional,
       client: client ?? this.client,
       priceCents: priceCents,
-      shopPercent: shopPercent,
-      professionalPercent: professionalPercent,
+      shopPercent: shopPercent ?? this.shopPercent,
+      professionalPercent: professionalPercent ?? this.professionalPercent,
       canCancel: canCancel ?? this.canCancel,
       canceledBy: canceledBy ?? this.canceledBy,
       note: note ?? this.note,
       createdAt: createdAt,
+      overlapsBlock: overlapsBlock ?? this.overlapsBlock,
     );
   }
 
@@ -195,6 +205,7 @@ class Booking extends Equatable {
     'canceledBy': canceledBy?.wire,
     'note': note,
     'createdAt': toIsoSp(createdAt),
+    if (overlapsBlock != null) 'overlapsBlock': overlapsBlock,
   };
 
   @override
@@ -216,6 +227,7 @@ class Booking extends Equatable {
     canceledBy,
     note,
     createdAt,
+    overlapsBlock,
   ];
 }
 

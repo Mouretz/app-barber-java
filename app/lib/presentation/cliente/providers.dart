@@ -1,3 +1,4 @@
+import '../../core/config/build_mode.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -20,7 +21,7 @@ final clockProvider = Provider<Clock>((ref) => const SystemClock());
 /// Repositório do app Cliente. `DATA_SOURCE=mock` (padrão) roda sem servidor.
 final clienteRepositoryProvider = Provider<ClienteRepository>((ref) {
   final config = ref.watch(appConfigProvider);
-  if (config.isMock) {
+  if (kBuildIsMock && config.isMock) {
     return MockClienteRepository(
       clock: ref.watch(clockProvider),
       persistence: PrefsMockPersistence(),
