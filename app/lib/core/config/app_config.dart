@@ -1,3 +1,5 @@
+import 'build_mode.dart';
+
 /// Qual dos dois apps está rodando. Vem do ponto de entrada
 /// (`main_cliente.dart` ou `main_casa.dart`), que casa com o flavor do Android.
 enum Flavor {
@@ -23,11 +25,16 @@ class AppConfig {
   });
 
   factory AppConfig.fromEnvironment(Flavor flavor) {
+    final dataSource = parseDataSource(
+      const String.fromEnvironment('DATA_SOURCE', defaultValue: 'mock'),
+    );
+    checkBuildMode(
+      parsedIsMock: dataSource == DataSource.mock,
+      buildIsMock: kBuildIsMock,
+    );
     return AppConfig(
       flavor: flavor,
-      dataSource: parseDataSource(
-        const String.fromEnvironment('DATA_SOURCE', defaultValue: 'mock'),
-      ),
+      dataSource: dataSource,
       apiBaseUrl: const String.fromEnvironment(
         'API_BASE_URL',
         defaultValue: 'http://10.0.2.2:8080/api/v1',

@@ -272,9 +272,9 @@ class MockCasaState {
 ///
 /// As senhas valem só no mock e aparecem na tela de login do APK mock.
 abstract final class MockCasaSeed {
-  static const marinaId = '6f1c2a10-0000-4000-8000-0000000000f1';
-  static const caioUserId = '6f1c2a10-0000-4000-8000-0000000000f2';
-  static const helenaUserId = '6f1c2a10-0000-4000-8000-0000000000f3';
+  static const marinaId = '6f1c2a10-0000-4000-8000-0000000000f3';
+  static const caioUserId = '6f1c2a10-0000-4000-8000-0000000000f1';
+  static const helenaUserId = '6f1c2a10-0000-4000-8000-0000000000f2';
 
   static const marinaEmail = 'gerente@navalha.mock';
   static const caioEmail = 'caio@navalha.mock';
