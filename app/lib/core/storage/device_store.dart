@@ -17,6 +17,7 @@ class DeviceState {
     this.clientCode,
     this.boundPhone,
     this.clientName,
+    this.draftPhone,
     this.disconnectedNotice = false,
   });
 
@@ -34,8 +35,12 @@ class DeviceState {
   /// Telefone (`+55...`) a que o código está preso.
   final String? boundPhone;
 
-  /// Nome usado no último agendamento aceito (só para preencher o campo).
+  /// Nome usado no último agendamento aceito, ou o nome digitado no cadastro.
   final String? clientName;
+
+  /// Telefone que a pessoa cadastrou, ainda sem agendamento aceito.
+  /// Não trava o campo: o número mockado do João não entra aqui.
+  final String? draftPhone;
 
   /// O aparelho acabou de ser desconectado pela barbearia (401 com o código
   /// salvo): o app mostra o aviso uma vez e chama
@@ -44,6 +49,9 @@ class DeviceState {
 
   /// Aparelho preso a um telefone: tem horários para listar e cancelar.
   bool get hasSession => clientCode != null && boundPhone != null;
+
+  /// Número para mostrar. Sessão aceita ganha do rascunho.
+  String? get phoneOnFile => hasSession ? boundPhone : draftPhone;
 }
 
 /// Sessão que o aparelho já traz na primeira abertura, como se o cliente
@@ -69,6 +77,7 @@ class DeviceStore extends Notifier<DeviceState> {
   static const kClientCode = 'cortaaqui.cliente.client_code';
   static const kBoundPhone = 'cortaaqui.cliente.bound_phone';
   static const kClientName = 'cortaaqui.cliente.client_name';
+  static const kDraftPhone = 'cortaaqui.cliente.draft_phone';
 
   /// A sessão do seed (modo mock) já foi posta neste aparelho. Fica gravado
   /// para "Entrar como cliente novo" não ser desfeito na próxima abertura.
@@ -93,6 +102,7 @@ class DeviceStore extends Notifier<DeviceState> {
         clientCode: complete ? code : null,
         boundPhone: complete ? phone : null,
         clientName: prefs.getString(kClientName),
+        draftPhone: complete ? null : prefs.getString(kDraftPhone),
       );
     } catch (_) {
       state = const DeviceState(hydrated: true);
@@ -120,6 +130,7 @@ class DeviceStore extends Notifier<DeviceState> {
       clientCode: state.clientCode,
       boundPhone: state.boundPhone,
       clientName: state.clientName,
+      draftPhone: state.draftPhone,
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(kIntroSeen, true);
@@ -142,6 +153,28 @@ class DeviceStore extends Notifier<DeviceState> {
     await prefs.setString(kClientCode, code);
     await prefs.setString(kBoundPhone, phone);
     await prefs.setString(kClientName, name);
+    await prefs.remove(kDraftPhone);
+  }
+
+  /// Cadastro do telefone, antes de qualquer agendamento. Não prende o
+  /// aparelho: o campo continua editável e nenhum número mockado é usado.
+  Future<void> savePhoneDraft({
+    required String phone,
+    required String name,
+  }) async {
+    state = DeviceState(
+      hydrated: state.hydrated,
+      introSeen: state.introSeen,
+      clientCode: state.clientCode,
+      boundPhone: state.boundPhone,
+      clientName: name,
+      draftPhone: state.hasSession ? null : phone,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kClientName, name);
+    if (!state.hasSession) {
+      await prefs.setString(kDraftPhone, phone);
+    }
   }
 
   /// Um pedido com o código salvo deu 401 (aparelho liberado pelo gerente na
@@ -175,6 +208,7 @@ class DeviceStore extends Notifier<DeviceState> {
       clientCode: state.clientCode,
       boundPhone: state.boundPhone,
       clientName: state.clientName,
+      draftPhone: state.draftPhone,
     );
   }
 
@@ -183,6 +217,7 @@ class DeviceStore extends Notifier<DeviceState> {
     await prefs.remove(kClientCode);
     await prefs.remove(kBoundPhone);
     await prefs.remove(kClientName);
+    await prefs.remove(kDraftPhone);
   }
 
   /// "Entrar como cliente novo" (só no modo mock): esquece código, telefone e

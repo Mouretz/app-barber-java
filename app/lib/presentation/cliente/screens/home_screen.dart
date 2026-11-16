@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/format/formatters.dart';
+import '../../../core/phone/phone.dart';
+import '../../../core/storage/device_store.dart';
 import '../../../core/time/sao_paulo.dart';
 import '../../../data/models/barbershop.dart';
 import '../../../data/repositories/cliente_repository.dart';
@@ -10,6 +12,7 @@ import '../../../theme/theme.dart';
 import '../providers.dart';
 import '../widgets/booking_card.dart';
 import '../widgets/common.dart';
+import 'register_phone_sheet.dart';
 
 /// História 15. Próximo horário do cliente e lista de barbearias.
 class HomeScreen extends ConsumerWidget {
@@ -26,6 +29,7 @@ class HomeScreen extends ConsumerWidget {
     final text = Theme.of(context).textTheme;
     final shops = ref.watch(barbershopsProvider);
     final next = ref.watch(nextBookingProvider);
+    final device = ref.watch(deviceStoreProvider);
     final today = SpDate.of(ref.watch(clockProvider).now());
 
     return Scaffold(
@@ -40,6 +44,24 @@ class HomeScreen extends ConsumerWidget {
               const SizedBox(height: 6),
               Text('Início', style: text.displaySmall),
               const SizedBox(height: 28),
+              if (device.hydrated && device.phoneOnFile == null) ...[
+                _RegisterPhoneInfo(
+                  onTap: () => showRegisterPhoneSheet(context, ref),
+                ),
+                const SizedBox(height: 28),
+              ],
+              if (device.hydrated &&
+                  !device.hasSession &&
+                  device.draftPhone != null) ...[
+                SurfaceCard(
+                  key: const ValueKey('home-phone-saved'),
+                  child: Text(
+                    'Telefone cadastrado: ${formatPhone(device.draftPhone!)}.',
+                    style: text.bodyMedium,
+                  ),
+                ),
+                const SizedBox(height: 28),
+              ],
               const SectionLabel('Próximo horário'),
               next.when(
                 loading: () => const LoadingBox(height: 110),
@@ -80,6 +102,37 @@ class HomeScreen extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _RegisterPhoneInfo extends StatelessWidget {
+  const _RegisterPhoneInfo({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      key: const ValueKey('home-register-phone'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Cadastre seu telefone', style: text.titleLarge),
+          const SizedBox(height: 4),
+          Text(
+            'Sem telefone cadastrado. Toque abaixo e digite o seu número.',
+            style: text.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            key: const ValueKey('home-register-phone-button'),
+            onPressed: onTap,
+            child: const Text('Cadastrar telefone'),
+          ),
+        ],
       ),
     );
   }

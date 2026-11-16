@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/config/app_config.dart';
-import 'core/storage/device_store.dart';
-import 'data/mock/mock_seed.dart';
 import 'presentation/cliente/cliente_app.dart';
 import 'presentation/placeholder_home.dart';
 import 'theme/theme.dart';
@@ -101,12 +99,10 @@ class ConfigErrorApp extends StatelessWidget {
   }
 }
 
-/// No modo mock, o aparelho que abre o app já vem preso ao João do seed
-/// (plano da QA, seção 2, e checklist do APK). No modo api, nada.
-List<Override> deviceSeedOverrides(AppConfig config) => [
-  if (config.isMock && config.flavor == Flavor.cliente)
-    seedSessionProvider.overrideWithValue(MockSeed.joaoSession),
-];
+/// O APK não traz telefone pronto. A pessoa cadastra o dela na tela.
+/// A sessão do João continua só no seed do mock (outro aparelho), para o
+/// teste de "telefone já em outro celular".
+List<Override> deviceSeedOverrides(AppConfig config) => const [];
 
 class CortaAquiApp extends StatelessWidget {
   const CortaAquiApp({super.key, required this.config});
