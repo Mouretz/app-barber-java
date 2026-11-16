@@ -70,11 +70,10 @@ void main() {
 
       expect(prefs.getString(DeviceStore.kDraftPhone), '+5531998765432');
       expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
-      expect(
-        find.text('Telefone cadastrado: (31) 99876-5432.'),
-        findsOneWidget,
-      );
-      expect(find.text('(11) 98765-4321'), findsNothing);
+      expect(find.byKey(const ValueKey('home-client-name')), findsOneWidget);
+      expect(find.text('Ana'), findsOneWidget);
+      expect(find.textContaining('Telefone'), findsNothing);
+      expect(find.text('(31) 99876-5432'), findsNothing);
     },
   );
 

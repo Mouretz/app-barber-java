@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/format/formatters.dart';
-import '../../../core/phone/phone.dart';
 import '../../../core/storage/device_store.dart';
 import '../../../core/time/sao_paulo.dart';
 import '../../../data/models/barbershop.dart';
@@ -51,17 +50,15 @@ class HomeScreen extends ConsumerWidget {
                 const SizedBox(height: 28),
               ],
               if (device.hydrated &&
-                  !device.hasSession &&
-                  device.draftPhone != null) ...[
-                SurfaceCard(
-                  key: const ValueKey('home-phone-saved'),
+                  (device.clientName ?? '').trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 28),
                   child: Text(
-                    'Telefone cadastrado: ${formatPhone(device.draftPhone!)}.',
-                    style: text.bodyMedium,
+                    device.clientName!.trim(),
+                    key: const ValueKey('home-client-name'),
+                    style: text.titleLarge,
                   ),
                 ),
-                const SizedBox(height: 28),
-              ],
               const SectionLabel('Próximo horário'),
               next.when(
                 loading: () => const LoadingBox(height: 110),
