@@ -78,7 +78,11 @@ class _ConfirmBookingSheetState extends ConsumerState<ConfirmBookingSheet> {
     super.initState();
     final device = ref.read(deviceStoreProvider);
     _name.text = device.clientName ?? '';
-    if (device.hasSession) _phone.text = formatPhone(device.boundPhone!);
+    if (device.hasSession) {
+      _phone.text = formatPhone(device.boundPhone!);
+    } else if (device.draftPhone != null) {
+      _phone.text = formatPhone(device.draftPhone!);
+    }
   }
 
   @override

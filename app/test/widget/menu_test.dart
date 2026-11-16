@@ -51,7 +51,7 @@ void main() {
         tester,
         repo: repo,
         clock: clock,
-        deviceSeed: true,
+        clientCode: joaoCode,
         location: '/menu',
       );
       expect(
@@ -71,8 +71,7 @@ void main() {
       expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
       expect(prefs.getString(DeviceStore.kClientName), isNull);
       expect(prefs.getBool(DeviceStore.kIntroSeen), isNull);
-      // ...e a marca do seed fica: o João não volta.
-      expect(prefs.getBool(DeviceStore.kSeedSessionApplied), isTrue);
+      expect(prefs.getBool(DeviceStore.kSeedSessionApplied), isNull);
 
       // ...depois o Início, sem o João nem o horário dele.
       await skipIntro(tester);
@@ -122,19 +121,19 @@ void main() {
     },
   );
 
-  testWidgets('modo mock, aparelho limpo: o menu diz que o 1º agendamento liga '
-      'o aparelho', (tester) async {
-    final clock = FixedClock(kNow);
-    await pumpCliente(
-      tester,
-      repo: seededRepo(clock),
-      clock: clock,
-      location: '/menu',
-    );
-    expect(
-      find.text('Seu primeiro agendamento liga este aparelho ao seu telefone.'),
-      findsOneWidget,
-    );
-    expect(find.byKey(const ValueKey('menu-new-client')), findsOneWidget);
-  });
+  testWidgets(
+    'modo mock, aparelho limpo: o menu pede para cadastrar o telefone',
+    (tester) async {
+      final clock = FixedClock(kNow);
+      await pumpCliente(
+        tester,
+        repo: seededRepo(clock),
+        clock: clock,
+        location: '/menu',
+      );
+      expect(find.text('Nenhum telefone cadastrado.'), findsOneWidget);
+      expect(find.text('Cadastrar telefone'), findsOneWidget);
+      expect(find.byKey(const ValueKey('menu-new-client')), findsOneWidget);
+    },
+  );
 }

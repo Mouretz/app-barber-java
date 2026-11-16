@@ -29,68 +29,49 @@ Future<Map<String, Object>> savedPrefs() async {
 }
 
 void main() {
-  testWidgets('APK mock, 1ª abertura: a intro aparece e depois o Início mostra '
-      'o próximo horário do João, com o aparelho já preso a ele', (
-    tester,
-  ) async {
-    final clock = FixedClock(kNow);
-    await pumpCliente(
-      tester,
-      repo: seededRepo(clock),
-      clock: clock,
-      introSeen: false,
-      deviceSeed: true,
-    );
+  testWidgets(
+    'APK mock, 1ª abertura: sem telefone pronto, a pessoa cadastra o dela',
+    (tester) async {
+      final clock = FixedClock(kNow);
+      await pumpCliente(
+        tester,
+        repo: seededRepo(clock),
+        clock: clock,
+        introSeen: false,
+        deviceSeed: true,
+      );
 
-    // A intro de primeira abertura continua.
-    expect(find.text('Pular'), findsOneWidget);
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(DeviceStore.kClientCode), MockSeed.joaoDeviceCode);
-    expect(prefs.getString(DeviceStore.kBoundPhone), MockSeed.joaoPhone);
-    expect(prefs.getString(DeviceStore.kClientName), 'João Almeida');
-    expect(prefs.getBool(DeviceStore.kSeedSessionApplied), isTrue);
+      expect(find.text('Pular'), findsOneWidget);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(DeviceStore.kClientCode), isNull);
+      expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
+      expect(prefs.getString(DeviceStore.kDraftPhone), isNull);
 
-    await tester.tap(find.text('Pular'));
-    await tester.pumpAndSettle();
-    final card = find.byKey(const ValueKey('home-next-booking'));
-    expect(card, findsOneWidget);
-    expect(
-      find.descendant(of: card, matching: find.text('Amanhã, 10:00')),
-      findsOneWidget,
-    );
+      await tester.tap(find.text('Pular'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('home-register-phone')), findsOneWidget);
+      expect(find.text('Cadastrar telefone'), findsOneWidget);
+      expect(find.byKey(const ValueKey('home-next-booking')), findsNothing);
 
-    // Horários: 1 futuro e 2 no histórico, sem aviso de desconexão.
-    await tester.tap(find.text('Horários'));
-    await tester.pumpAndSettle();
-    expect(find.text('Corte com Caio'), findsOneWidget);
-    await tapKey(tester, 'scope-past');
-    expect(find.text('Corte + Barba com Helena'), findsOneWidget);
-    expect(find.text('Barba com Caio'), findsOneWidget);
-    expect(
-      find.text('Este aparelho foi desconectado pela barbearia.'),
-      findsNothing,
-    );
+      await tester.tap(find.byKey(const ValueKey('home-register-phone-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('register-name')), 'Ana');
+      await tester.enterText(
+        find.byKey(const ValueKey('register-phone')),
+        '(31) 99876-5432',
+      );
+      await tester.tap(find.byKey(const ValueKey('register-save')));
+      await tester.pumpAndSettle();
 
-    // Agendar pela página da barbearia: telefone do João travado.
-    await tester.tap(find.text('Início'));
-    await tester.pumpAndSettle();
-    final shop = find.text('Barbearia Navalha').last;
-    await tester.ensureVisible(shop);
-    await tester.tap(shop);
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Agendar'));
-    await tester.pumpAndSettle();
-    await tapKey(tester, 'service-${MockSeed.corteId}');
-    await tapKey(tester, 'pro-${MockSeed.caioId}');
-    await tapKey(tester, 'day-2026-10-08');
-    await tapKey(tester, 'slot-09:00');
-    await tapKey(tester, 'booking-continue');
-    final phone = tester.widget<TextField>(
-      find.byKey(const ValueKey('confirm-phone')),
-    );
-    expect(phone.readOnly, isTrue);
-    expect(phone.controller!.text, '(11) 98765-4321');
-  });
+      expect(prefs.getString(DeviceStore.kDraftPhone), '+5531998765432');
+      expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
+      expect(
+        find.text('Telefone cadastrado: (31) 99876-5432.'),
+        findsOneWidget,
+      );
+      expect(find.text('(11) 98765-4321'), findsNothing);
+    },
+  );
 
   testWidgets(
     'modo api: nenhuma sessão do seed, o aparelho começa sem código',
@@ -180,7 +161,7 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(DeviceStore.kClientCode), proprio);
     expect(prefs.getString(DeviceStore.kBoundPhone), '+5531998765432');
-    expect(prefs.getBool(DeviceStore.kSeedSessionApplied), isTrue);
+    expect(prefs.getBool(DeviceStore.kSeedSessionApplied), isNull);
     expect(find.byKey(const ValueKey('home-next-booking')), findsOneWidget);
   });
 }
