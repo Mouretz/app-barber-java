@@ -49,13 +49,21 @@ void main() {
 
       await tester.tap(find.text('Pular'));
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('home-register-phone')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('home-register-phone')),
+        findsOneWidget,
+      );
       expect(find.text('Cadastrar telefone'), findsOneWidget);
       expect(find.byKey(const ValueKey('home-next-booking')), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('home-register-phone-button')));
+      await tester.tap(
+        find.byKey(const ValueKey('home-register-phone-button')),
+      );
       await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const ValueKey('register-name')), 'Ana');
+      await tester.enterText(
+        find.byKey(const ValueKey('register-name')),
+        'Ana',
+      );
       await tester.enterText(
         find.byKey(const ValueKey('register-phone')),
         '(31) 99876-5432',
