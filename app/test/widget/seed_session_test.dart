@@ -49,10 +49,7 @@ void main() {
 
       await tester.tap(find.text('Pular'));
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('home-register-phone')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('home-register-phone')), findsOneWidget);
       expect(find.text('Cadastrar telefone'), findsOneWidget);
       expect(find.byKey(const ValueKey('home-next-booking')), findsNothing);
 
