@@ -12,6 +12,24 @@ sai uma release `cortaaqui-apk-N` com dois arquivos, em modo mock (sem servidor)
 A versão no `pubspec` continua `0.1.0+1` até a primeira tela de verdade. O número
 que importa para baixar é o da release.
 
+## cortaaqui-apk-21 — app Cliente (22 out 2026)
+
+Este é o APK para testar o MVP do cliente. Saiu do merge do
+[PR #9](https://github.com/Mouretz/app-barber-java/pull/9).
+Baixar: [cortaaqui-apk-21](https://github.com/Mouretz/app-barber-java/releases/tag/cortaaqui-apk-21).
+
+No `CortaAqui-cliente.apk`, em modo mock, sem servidor:
+
+- Menu de baixo: Início, Horários e Menu.
+- Introdução na primeira abertura.
+- Escolher a barbearia, o serviço, o profissional, o dia e o horário.
+- Continuar, confirmar nome e telefone, e ver "Horário marcado".
+- Os horários ficam na aba Horários. Dá para cancelar até 2 horas antes.
+- No Menu: ver a introdução de novo e, só no mock, entrar como cliente novo.
+
+O `CortaAqui-casa.apk` desta release ainda é a casca antiga. O app da Casa
+está no [PR #12](https://github.com/Mouretz/app-barber-java/pull/12), aberto.
+
 ## Servidor — PR #8 na main (8 out 2026)
 
 O [PR #8](https://github.com/Mouretz/app-barber-java/pull/8) entrou na `main`.
@@ -21,16 +39,10 @@ O [PR #8](https://github.com/Mouretz/app-barber-java/pull/8) entrou na `main`.
 - Só o gerente edita ficha de cliente.
 - Profissional desativado perde o acesso naquela barbearia. Se não tiver outra, o token recebe 401. O gerente continua vendo o histórico dele no caixa.
 
-Isso não muda o APK. O app de teste continua em modo mock, sem falar com o servidor.
-
 ## cortaaqui-apk-17 — 8 out 2026
 
 Merge do PR #5. `DATA_SOURCE` só aceita `mock` ou `api`. Valor errado abre a tela de erro.
-Baixar: [cortaaqui-apk-17](https://github.com/Mouretz/app-barber-java/releases/tag/cortaaqui-apk-17).
-
-## cortaaqui-apk-16 — 8 out 2026
-
-Mesma casca do APK 11. A pasta `app/` ainda não tinha o PR #5.
+Ainda sem o fluxo de agendamento. Não use este para testar o cliente.
 
 ## cortaaqui-apk-11 — 8 out 2026, 00:22
 
