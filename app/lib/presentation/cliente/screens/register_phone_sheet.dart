@@ -6,7 +6,7 @@ import '../../../core/phone/phone.dart';
 import '../../../core/storage/device_store.dart';
 import '../../../theme/theme.dart';
 
-/// Pede nome e celular. Não preenche número nenhum.
+/// Pede nome, sobrenome, apelido e celular. O Início não mostra o número.
 Future<bool> showRegisterPhoneSheet(BuildContext context, WidgetRef ref) async {
   final saved = await showModalBottomSheet<bool>(
     context: context,
@@ -25,31 +25,56 @@ class RegisterPhoneSheet extends ConsumerStatefulWidget {
 }
 
 class _RegisterPhoneSheetState extends ConsumerState<RegisterPhoneSheet> {
-  final _name = TextEditingController();
+  final _first = TextEditingController();
+  final _last = TextEditingController();
+  final _nick = TextEditingController();
   final _phone = TextEditingController();
-  String? _nameError;
+  String? _firstError;
+  String? _lastError;
   String? _phoneError;
 
   @override
+  void initState() {
+    super.initState();
+    final device = ref.read(deviceStoreProvider);
+    _first.text = device.firstName ?? '';
+    _last.text = device.lastName ?? '';
+    _nick.text = device.nickname ?? '';
+    if (device.phoneOnFile != null) {
+      _phone.text = formatPhone(device.phoneOnFile!);
+    }
+  }
+
+  @override
   void dispose() {
-    _name.dispose();
+    _first.dispose();
+    _last.dispose();
+    _nick.dispose();
     _phone.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    final name = _name.text.trim();
+    final first = _first.text.trim();
+    final last = _last.text.trim();
+    final nick = _nick.text.trim();
     final phone = normalizePhone(_phone.text);
     setState(() {
-      _nameError = name.length < 2 ? 'Escreva seu nome.' : null;
+      _firstError = first.length < 2 ? 'Escreva seu nome.' : null;
+      _lastError = last.length < 2 ? 'Escreva seu sobrenome.' : null;
       _phoneError = phone != null
           ? null
           : 'Telefone inválido. Use DDD + número, ex.: (11) 98765-4321.';
     });
-    if (_nameError != null || _phoneError != null || phone == null) return;
+    if (_firstError != null || _lastError != null || phone == null) return;
     await ref
         .read(deviceStoreProvider.notifier)
-        .savePhoneDraft(phone: phone, name: name);
+        .savePhoneDraft(
+          phone: phone,
+          firstName: first,
+          lastName: last,
+          nickname: nick,
+        );
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -65,22 +90,41 @@ class _RegisterPhoneSheetState extends ConsumerState<RegisterPhoneSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Cadastrar telefone', style: text.headlineSmall),
+            Text('Seus dados', style: text.headlineSmall),
             const SizedBox(height: 8),
             Text(
-              'Digite o seu número. O app não traz telefone pronto.',
+              'O Início mostra nome, sobrenome e apelido. O telefone fica no Menu.',
               style: text.bodySmall,
             ),
             const SizedBox(height: 16),
             TextField(
               key: const ValueKey('register-name'),
-              controller: _name,
+              controller: _first,
               textCapitalization: TextCapitalization.words,
               textInputAction: TextInputAction.next,
               decoration: InputDecoration(
-                labelText: 'Seu nome',
-                errorText: _nameError,
+                labelText: 'Nome',
+                errorText: _firstError,
               ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('register-last'),
+              controller: _last,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: 'Sobrenome',
+                errorText: _lastError,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('register-nick'),
+              controller: _nick,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Apelido'),
             ),
             const SizedBox(height: 12),
             TextField(

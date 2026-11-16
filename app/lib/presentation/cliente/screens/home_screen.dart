@@ -49,14 +49,26 @@ class HomeScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 28),
               ],
-              if (device.hydrated &&
-                  (device.clientName ?? '').trim().isNotEmpty)
+              if (device.hydrated && device.homeFullName != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 28),
-                  child: Text(
-                    device.clientName!.trim(),
-                    key: const ValueKey('home-client-name'),
-                    style: text.titleLarge,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        device.homeFullName!,
+                        key: const ValueKey('home-client-name'),
+                        style: text.titleLarge,
+                      ),
+                      if ((device.nickname ?? '').trim().isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          device.nickname!.trim(),
+                          key: const ValueKey('home-client-nick'),
+                          style: text.bodyMedium,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               const SectionLabel('Próximo horário'),
@@ -117,17 +129,17 @@ class _RegisterPhoneInfo extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Cadastre seu telefone', style: text.titleLarge),
+          Text('Cadastre seu nome', style: text.titleLarge),
           const SizedBox(height: 4),
           Text(
-            'Sem telefone cadastrado. Toque abaixo e digite o seu número.',
+            'Nome, sobrenome e apelido. O telefone fica no Menu.',
             style: text.bodySmall,
           ),
           const SizedBox(height: 16),
           FilledButton(
             key: const ValueKey('home-register-phone-button'),
             onPressed: onTap,
-            child: const Text('Cadastrar telefone'),
+            child: const Text('Cadastrar'),
           ),
         ],
       ),

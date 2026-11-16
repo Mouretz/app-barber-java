@@ -17,6 +17,9 @@ class DeviceState {
     this.clientCode,
     this.boundPhone,
     this.clientName,
+    this.firstName,
+    this.lastName,
+    this.nickname,
     this.draftPhone,
     this.disconnectedNotice = false,
   });
@@ -35,8 +38,13 @@ class DeviceState {
   /// Telefone (`+55...`) a que o código está preso.
   final String? boundPhone;
 
-  /// Nome usado no último agendamento aceito, ou o nome digitado no cadastro.
+  /// Nome usado no agendamento: "Nome Sobrenome".
   final String? clientName;
+
+  /// Nome, sobrenome e apelido cadastrados. O Início mostra só estes.
+  final String? firstName;
+  final String? lastName;
+  final String? nickname;
 
   /// Telefone que a pessoa cadastrou, ainda sem agendamento aceito.
   /// Não trava o campo: o número mockado do João não entra aqui.
@@ -50,8 +58,19 @@ class DeviceState {
   /// Aparelho preso a um telefone: tem horários para listar e cancelar.
   bool get hasSession => clientCode != null && boundPhone != null;
 
-  /// Número para mostrar. Sessão aceita ganha do rascunho.
+  /// Número para mostrar no Menu. O Início não usa.
   String? get phoneOnFile => hasSession ? boundPhone : draftPhone;
+
+  /// "Nome Sobrenome" para o Início. Se ainda não separou, usa o nome antigo.
+  String? get homeFullName {
+    final joined = [
+      firstName,
+      lastName,
+    ].map((s) => (s ?? '').trim()).where((s) => s.isNotEmpty).join(' ');
+    if (joined.isNotEmpty) return joined;
+    final legacy = (clientName ?? '').trim();
+    return legacy.isEmpty ? null : legacy;
+  }
 }
 
 /// Sessão que o aparelho já traz na primeira abertura, como se o cliente
@@ -77,6 +96,9 @@ class DeviceStore extends Notifier<DeviceState> {
   static const kClientCode = 'cortaaqui.cliente.client_code';
   static const kBoundPhone = 'cortaaqui.cliente.bound_phone';
   static const kClientName = 'cortaaqui.cliente.client_name';
+  static const kFirstName = 'cortaaqui.cliente.first_name';
+  static const kLastName = 'cortaaqui.cliente.last_name';
+  static const kNickname = 'cortaaqui.cliente.nickname';
   static const kDraftPhone = 'cortaaqui.cliente.draft_phone';
 
   /// A sessão do seed (modo mock) já foi posta neste aparelho. Fica gravado
@@ -102,6 +124,9 @@ class DeviceStore extends Notifier<DeviceState> {
         clientCode: complete ? code : null,
         boundPhone: complete ? phone : null,
         clientName: prefs.getString(kClientName),
+        firstName: prefs.getString(kFirstName),
+        lastName: prefs.getString(kLastName),
+        nickname: prefs.getString(kNickname),
         draftPhone: complete ? null : prefs.getString(kDraftPhone),
       );
     } catch (_) {
@@ -130,6 +155,9 @@ class DeviceStore extends Notifier<DeviceState> {
       clientCode: state.clientCode,
       boundPhone: state.boundPhone,
       clientName: state.clientName,
+      firstName: state.firstName,
+      lastName: state.lastName,
+      nickname: state.nickname,
       draftPhone: state.draftPhone,
     );
     final prefs = await SharedPreferences.getInstance();
@@ -148,6 +176,9 @@ class DeviceStore extends Notifier<DeviceState> {
       clientCode: code,
       boundPhone: phone,
       clientName: name,
+      firstName: state.firstName,
+      lastName: state.lastName,
+      nickname: state.nickname,
     );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kClientCode, code);
@@ -160,18 +191,27 @@ class DeviceStore extends Notifier<DeviceState> {
   /// aparelho: o campo continua editável e nenhum número mockado é usado.
   Future<void> savePhoneDraft({
     required String phone,
-    required String name,
+    required String firstName,
+    required String lastName,
+    required String nickname,
   }) async {
+    final full = '$firstName $lastName'.trim();
     state = DeviceState(
       hydrated: state.hydrated,
       introSeen: state.introSeen,
       clientCode: state.clientCode,
       boundPhone: state.boundPhone,
-      clientName: name,
+      clientName: full,
+      firstName: firstName,
+      lastName: lastName,
+      nickname: nickname,
       draftPhone: state.hasSession ? null : phone,
     );
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kClientName, name);
+    await prefs.setString(kClientName, full);
+    await prefs.setString(kFirstName, firstName);
+    await prefs.setString(kLastName, lastName);
+    await prefs.setString(kNickname, nickname);
     if (!state.hasSession) {
       await prefs.setString(kDraftPhone, phone);
     }
@@ -208,6 +248,9 @@ class DeviceStore extends Notifier<DeviceState> {
       clientCode: state.clientCode,
       boundPhone: state.boundPhone,
       clientName: state.clientName,
+      firstName: state.firstName,
+      lastName: state.lastName,
+      nickname: state.nickname,
       draftPhone: state.draftPhone,
     );
   }
@@ -217,6 +260,9 @@ class DeviceStore extends Notifier<DeviceState> {
     await prefs.remove(kClientCode);
     await prefs.remove(kBoundPhone);
     await prefs.remove(kClientName);
+    await prefs.remove(kFirstName);
+    await prefs.remove(kLastName);
+    await prefs.remove(kNickname);
     await prefs.remove(kDraftPhone);
   }
 

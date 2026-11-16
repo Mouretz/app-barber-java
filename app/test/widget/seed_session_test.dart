@@ -50,7 +50,7 @@ void main() {
       await tester.tap(find.text('Pular'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('home-register-phone')), findsOneWidget);
-      expect(find.text('Cadastrar telefone'), findsOneWidget);
+      expect(find.text('Cadastrar'), findsOneWidget);
       expect(find.byKey(const ValueKey('home-next-booking')), findsNothing);
 
       await tester.tap(
@@ -62,6 +62,14 @@ void main() {
         'Ana',
       );
       await tester.enterText(
+        find.byKey(const ValueKey('register-last')),
+        'Souza',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('register-nick')),
+        'Aninha',
+      );
+      await tester.enterText(
         find.byKey(const ValueKey('register-phone')),
         '(31) 99876-5432',
       );
@@ -71,7 +79,8 @@ void main() {
       expect(prefs.getString(DeviceStore.kDraftPhone), '+5531998765432');
       expect(prefs.getString(DeviceStore.kBoundPhone), isNull);
       expect(find.byKey(const ValueKey('home-client-name')), findsOneWidget);
-      expect(find.text('Ana'), findsOneWidget);
+      expect(find.text('Ana Souza'), findsOneWidget);
+      expect(find.text('Aninha'), findsOneWidget);
       expect(find.textContaining('Telefone'), findsNothing);
       expect(find.text('(31) 99876-5432'), findsNothing);
     },
