@@ -7,6 +7,7 @@ import '../../../core/phone/phone.dart';
 import '../../../core/storage/device_store.dart';
 import '../../../theme/theme.dart';
 import '../widgets/common.dart';
+import 'register_phone_sheet.dart';
 
 class MenuScreen extends ConsumerWidget {
   const MenuScreen({super.key});
@@ -50,6 +51,7 @@ class MenuScreen extends ConsumerWidget {
     final text = Theme.of(context).textTheme;
     final config = ref.watch(appConfigProvider);
     final device = ref.watch(deviceStoreProvider);
+    final phone = device.phoneOnFile;
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -69,8 +71,9 @@ class MenuScreen extends ConsumerWidget {
                       device.hasSession
                           ? 'Este aparelho está ligado ao telefone '
                                 '${formatPhone(device.boundPhone!)}.'
-                          : 'Seu primeiro agendamento liga este aparelho ao seu '
-                                'telefone.',
+                          : phone != null
+                          ? 'Telefone cadastrado: ${formatPhone(phone)}.'
+                          : 'Nenhum telefone cadastrado.',
                       key: const ValueKey('menu-device'),
                       style: text.bodyMedium,
                     ),
@@ -78,6 +81,16 @@ class MenuScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            if (!device.hasSession) ...[
+              const SizedBox(height: 12),
+              FilledButton(
+                key: const ValueKey('menu-register-phone'),
+                onPressed: () => showRegisterPhoneSheet(context, ref),
+                child: Text(
+                  phone == null ? 'Cadastrar telefone' : 'Alterar telefone',
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             const SectionLabel('App'),
             Card(

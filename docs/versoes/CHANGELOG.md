@@ -12,6 +12,14 @@ sai uma release `cortaaqui-apk-N` com dois arquivos, em modo mock (sem servidor)
 A versão no `pubspec` continua `0.1.0+1` até a primeira tela de verdade. O número
 que importa para baixar é o da release.
 
+## App Cliente — cadastrar o próprio telefone
+
+O app não abre mais com o telefone do João preenchido.
+
+- Sem número salvo, o Início e o Menu mostram **Cadastrar telefone**.
+- A pessoa digita o nome e o celular dela. Nada vem mockado.
+- O número do João e o do Rafael continuam no seed, presos a outro aparelho. Se alguém digitar esses números no agendamento, a barbearia recusa.
+
 ## cortaaqui-apk-21 — app Cliente (22 out 2026)
 
 Este é o APK para testar o MVP do cliente. Saiu do merge do

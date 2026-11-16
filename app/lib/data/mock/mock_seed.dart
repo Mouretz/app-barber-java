@@ -8,15 +8,12 @@ import 'mock_state.dart';
 /// Seed oficial do modo mock (plano da QA, seção 2, e CT-00-33): Barbearia
 /// Navalha, 2 profissionais, os serviços Corte 30, Barba 30 e Corte + Barba 60,
 /// e 2 clientes:
-/// - João, preso ao aparelho que abre o app no modo mock: o código dele
-///   ([joaoDeviceCode]) já vem salvo na primeira abertura ([joaoSession]), e o
-///   Início mostra o próximo horário dele.
+/// - João continua no seed, com o telefone preso a um código que não é este
+///   aparelho. Quem abre o app não vê número nenhum: cadastra o próprio.
 /// - Rafael, preso a um aparelho fictício ([rafaelDeviceCode]). É com o
-///   telefone dele que se testa o `PHONE_ON_OTHER_DEVICE` (CT-00-46).
+///   telefone dele (e com o do João) que se testa o `PHONE_ON_OTHER_DEVICE`.
 ///
-/// Os ids são fixos e o seed do servidor (`db/seed-dev`) usa os mesmos. Lá o
-/// João começa sem aparelho e o primeiro aparelho que agenda com o telefone dele
-/// fica preso: no mock, esse aparelho é o que abre o app.
+/// Os ids são fixos e o seed do servidor (`db/seed-dev`) usa os mesmos.
 abstract final class MockSeed {
   static const shopId = '6f1c2a10-0000-4000-8000-000000000001';
 
